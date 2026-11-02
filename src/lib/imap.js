@@ -5,7 +5,9 @@
    extension (the browser enforces that through allowed_origins / allowed_extensions in the helper's manifest).
 
    The wire format is one JSON object per message. Requests: { id, op, ... }. Answers: { re: id, ok: true, ... } or
-   { re: id, error, auth?, code? }. Ops: hello, add, remove, poll (host/pocketcodes_host.py). One port stays open
+   { re: id, error, auth?, code? }. Ops: hello {} → { version, os, data }; add { acct, host, port, user, email,
+   password } → { user }; remove { acct }; poll { acct, since, limit, skip } → { messages: [{ key, from, subject,
+   text, at }] }, keys "i:<acct>:<uidvalidity>:<uid>" (host/pocketcodes_host.py's header). One port stays open
    while the browser needs it, so the helper keeps its IMAP connections between checks. */
 (function (g) {
   const PC = (g.PC = g.PC || {});
@@ -73,7 +75,9 @@
     remove: (id) => call({ op: "remove", acct: id }, 8000).catch(() => {}),
     revoke: async (a) => { await imap.remove(a.id); },
     async fetchRecent(a, { since, skip }) {
-      const r = await call({ op: "poll", acct: a.id, since, limit: 20 });
+      // the keys already read go along, so the helper doesn't download those messages again
+      const prefix = "i:" + a.id + ":";
+      const r = await call({ op: "poll", acct: a.id, since, limit: 20, skip: [...skip].filter((k) => k.startsWith(prefix)) });
       return (r.messages || []).filter((m) => !skip.has(m.key));
     },
   };
