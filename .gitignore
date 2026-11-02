@@ -1,0 +1,4 @@
+dist/
+web-ext-artifacts/
+__pycache__/
+*.pyc

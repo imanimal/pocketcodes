@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "PocketCodes",
+  "version": "0.1.0",
+  "description": "One-time codes from every Gmail, Microsoft, iCloud and IMAP inbox you add, in one list, with one-click fill. Read-only; stays in your browser.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvQoyb5T57vLqCHgd941EQP/BJOj211zYc+wp0ZHk7S9TB1g4eQg7hUcUz2BPp00mIcdxwIpzWG0vqk3oP9Delnk40Yom2eho94LnNo11r4YbOSLVLiUySQNp4Fn9Tmc3ljbFZGOKSpGXm0Qj5zEBfIKkZhm8pcd44OpnEFUdG4heCaRRRJQzQSHNruRP5Smnpkv/sdlEhn2lbe5Pa3bnlrEuY8wiv3GS7+OB72uUKBtj/Zj7SY8wnOB1pYKlWh7vLS1Ujun3pfFY5EuZ3Oz1be7uVxbL10nGIN2ysziNPPB2URROPw1+z3HsFaGOuaDvLu+o+xknHclCrhqYXmjT9wIDAQAB",
+  "homepage_url": "https://github.com/imanimal/pocketcodes",
+  "author": "imanimal",
+  "icons": { "16": "icons/icon-16.png", "32": "icons/icon-32.png", "48": "icons/icon-48.png", "96": "icons/icon-96.png", "128": "icons/icon-128.png" },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "codes@imanimal.github.io",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": { "required": ["authenticationInfo", "personalCommunications"] }
+    }
+  },
+  "background": {
+    "scripts": ["src/lib/util.js", "src/lib/codes.js", "src/lib/google.js", "src/lib/microsoft.js", "src/lib/imap.js", "src/lib/inbox.js", "src/background.js"],
+    "service_worker": "src/background.js"
+  },
+  "action": {
+    "default_popup": "src/pages/popup.html",
+    "default_title": "PocketCodes",
+    "default_icon": { "16": "icons/icon-16.png", "32": "icons/icon-32.png", "48": "icons/icon-48.png" }
+  },
+  "options_ui": { "page": "src/pages/options.html", "open_in_tab": true },
+  "permissions": ["storage", "alarms", "identity", "nativeMessaging", "notifications", "scripting", "activeTab"],
+  "host_permissions": [
+    "https://gmail.googleapis.com/*",
+    "https://oauth2.googleapis.com/*",
+    "https://graph.microsoft.com/*",
+    "https://login.microsoftonline.com/*"
+  ],
+  "optional_host_permissions": ["<all_urls>"],
+  "commands": {
+    "_execute_action": { "suggested_key": { "default": "Alt+Shift+C" }, "description": "Open PocketCodes" },
+    "fill-code": { "suggested_key": { "default": "Alt+Shift+F" }, "description": "Fill the newest code into this page" }
+  }
+}
