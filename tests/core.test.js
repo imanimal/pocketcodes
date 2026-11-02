@@ -341,3 +341,64 @@ test("a missing helper says how to install it", async () => {
   assert.equal(st.nohost, true);
   assert.match(st.error, /install_host\.py/);
 });
+
+// ── themes (the shared Pocket theme format) ──
+require("../src/lib/themes.js");
+const T = AS.themes;
+
+test("every built-in theme reads clearly, Standard first", () => {
+  assert.equal(T.BUILTIN[0].id, "standard-light");
+  assert.ok(T.BUILTIN.some((t) => t.look === "pocket" && t.scheme === "dark"));
+  for (const t of T.BUILTIN) {
+    assert.deepEqual(T.checks(t.tokens), [], t.id);
+    assert.equal(Object.keys(t.tokens).length, T.KEYS.length, t.id);
+  }
+  assert.equal(AS.DEFAULTS.theme, "standard-light");
+  assert.ok(T.byId(AS.DEFAULTS.nightTheme));
+});
+
+test("a theme comes out of a chatbot's whole reply", () => {
+  const reply = 'Here you go!\n```json\n{"pocketTheme":1,"name":"Harbor","look":"pocket","scheme":"dark","tokens":{"bg":"#0f1b24","surface":"#16252f","text":"#E6EEF2","accent":"#4fb3a9","on-accent":"#06201d"}}\n```\nEnjoy.';
+  const r = T.normalize(reply);
+  assert.equal(r.error, undefined);
+  assert.equal(r.theme.name, "Harbor");
+  assert.equal(r.theme.look, "pocket");
+  assert.equal(r.theme.tokens.text, "#e6eef2");
+  assert.equal(r.theme.tokens.line, T.byId("pocket-night").tokens.line, "missing colors from the built-in of the same look and scheme");
+  assert.match(r.warnings[0], /22 colors missing, taken from Pocket Night/);
+});
+
+test("themes from the other Pocket apps import too", () => {
+  const css = T.normalize('{"name":"Copy","tokens":{"--bw-bg":"#ffffff","--pc-text":"#000000","--as-accent":"#0040c1"}}').theme;
+  assert.deepEqual([css.tokens.bg, css.tokens.text, css.tokens.accent], ["#ffffff", "#000000", "#0040c1"]);
+  const v1 = T.normalize({ name: "Old pack", palette: { tokens: { "p-surface": "#fbf9f4", "p-acc": "#ff5b1f" } } }).theme;
+  assert.equal(v1.look, "pocket");
+  assert.equal(v1.tokens.accent, "#ff5b1f");
+  assert.equal(T.normalize({ id: "standard-light", name: "Standard", tokens: { bg: "#fff" } }).theme.id, "my-standard-light", "a built-in's id isn't taken over");
+  assert.match(T.normalize("no braces here").error, /No JSON/);
+  assert.match(T.normalize({ tokens: { bg: "blue" } }).error, /None of the colors/);
+});
+
+test("theme CSS can restyle but never load anything", () => {
+  const t = T.normalize({ name: "x", tokens: { bg: "#ffffff" }, css: '@import url("https://example.com/a.css"); body { background: url(https://example.com/x.png) } i { background: url(data:image/png;base64,AA==) }' }).theme;
+  assert.ok(!/@import|example\.com/.test(t.css));
+  assert.match(t.css, /data:image\/png/);
+});
+
+test("Fix contrast repairs a hard-to-read theme", () => {
+  const r = T.normalize({ name: "Faint", scheme: "light", tokens: { bg: "#ffffff", surface: "#ffffff", text: "#dddddd", text2: "#eeeeee", accent: "#ffff00", "on-accent": "#ffffff" } });
+  assert.ok(r.lowContrast);
+  const fixed = T.fix(r.theme);
+  assert.deepEqual(T.checks(fixed.tokens), []);
+});
+
+test("day and night themes switch on a schedule across midnight", () => {
+  const s = { night: "schedule", nightFrom: "20:00", nightTo: "07:00", theme: "pocket-cream", nightTheme: "pocket-ink" };
+  const at = (h, m) => new Date(2026, 10, 2, h, m).getTime();
+  assert.equal(T.pick(s, null, at(12, 0)).id, "pocket-cream");
+  assert.equal(T.pick(s, null, at(21, 0)).id, "pocket-ink");
+  assert.equal(T.pick(s, null, at(6, 59)).id, "pocket-ink");
+  assert.equal(T.pick(s, null, at(7, 0)).id, "pocket-cream");
+  assert.equal(T.pick({ night: "off", theme: "gone" }).id, "standard-light", "a deleted theme falls back to Standard");
+  assert.equal(T.pick({ night: "on", nightTheme: "gone" }).id, "standard-dark");
+});

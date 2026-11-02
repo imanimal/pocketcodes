@@ -1,8 +1,9 @@
 /* AuthSkip: shared helpers for every context (background, popup, options, and the sign-in pages' content script).
    Classic scripts on globalThis.AS, no bundler and no npm. Load order: util → codes → google → microsoft → imap →
-   inbox → background; the popup loads util → popup, options util → imap (for its presets) → options; the content
-   script loads util → fill → offer.
-   The manifest's background list, the <script> tags in src/pages/*.html and background.js's importScripts stay in step.
+   inbox → background; the popup loads util → themes → icons → kit → popup; options util → themes → icons → kit →
+   imap (for its presets) → look → options; the content script loads util → themes → fill → offer.
+   The manifest's background list, background.js's importScripts and registerPage, and the <script> tags in
+   src/pages/*.html stay in step.
 
    Storage is all storage.local. Only the background script writes the first group, so reads never race a write;
    the pages write the second group and read everything:
@@ -15,6 +16,7 @@
      settings     the options below (DEFAULTS)
      google       { clientId, clientSecret }   your own Google Cloud OAuth client (docs in the README)
      microsoft    { clientId }                 your own Entra app registration
+     themes       imported and edited themes, in the shared Pocket theme format (lib/themes.js)
    An iCloud or other IMAP password never reaches this storage: it goes straight to the helper (host/), which keeps
    it in the operating system's own vault. */
 (function (g) {
@@ -31,6 +33,10 @@
     fresh: 10,          // minutes a code counts as fresh: offered for filling, and counted on the badge
     page: false,        // offer codes on sign-in pages (needs the all-sites permission; registers fill.js and offer.js)
     fill: "ask",        // on those pages: ask (show a chip) | auto (fill it as soon as it arrives)
+    // look (lib/themes.js; night: off | auto (with the system) | schedule | on)
+    theme: "standard-light", nightTheme: "standard-dark", night: "auto", nightFrom: "20:00", nightTo: "07:00",
+    type: "system",     // system (your system's font) | hyper (Atkinson Hyperlegible); Pocket themes bring their own
+    motion: "full",     // full | off
   };
   AS.DEFAULTS = DEFAULTS;
 
