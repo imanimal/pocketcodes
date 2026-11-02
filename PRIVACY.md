@@ -20,7 +20,7 @@ Everything stays on your computer, in the extension's own storage (`storage.loca
 - **Your accounts**: the address and, for IMAP, the server, port and login name.
 - **Sign-in tokens** for Google and Microsoft accounts: a refresh token and a short-lived access token per account.
 - **Message IDs** already read (up to 300 per account), so the same message isn't read twice. These hold no message content.
-- **Your settings**, and the OAuth client ID and secret you entered.
+- **Your settings and themes**, and the OAuth client ID and secret you entered.
 - **IMAP passwords** never go in the extension's storage. The helper keeps them in your operating system's vault: Windows DPAPI, the macOS Keychain, or on Linux a file only your user account can read.
 
 Message bodies are searched for a code in memory and then dropped. They are never stored or logged. The helper's log (`helper.log` in its data folder) records only errors, such as "couldn't reach the server". It never records passwords or message content.
@@ -31,13 +31,13 @@ Message bodies are searched for a code in memory and then dropped. They are neve
 - `login.microsoftonline.com` and `graph.microsoft.com`, to sign in to and read your Microsoft accounts.
 - The IMAP servers you add (such as `imap.mail.me.com`), over TLS, from the helper on your computer.
 
-Nothing else. There are no analytics, no crash reports, no ads and no remote code.
+Nothing else. There are no analytics, no crash reports, no ads and no remote code. Fonts ship inside the extension; themes can't load anything from the web. **Make one with a chatbot** in Settings → Look opens claude.ai in a new tab with theme instructions (and the idea you typed) in the address, only when you click it; nothing about your mail goes with it.
 
 The Google and Microsoft sign-ins use an OAuth client that you create in your own Google Cloud or Microsoft Entra project. Google or Microsoft may show you as that project's owner how many sign-ins it has, as they do for any app. Their own privacy policies cover what they do with that.
 
 ## Web pages
 
-If you turn on "Offer codes on sign-in pages", the extension asks for permission to run on all sites. On each page it looks only at form fields that look like code boxes (their type, name, label and size). When you press Fill, or choose to fill automatically, it types the code into them. It doesn't read the rest of the page and sends nothing from it anywhere. Without that permission, Fill works only on the tab you're on, when you press it.
+If you turn on "Offer codes on sign-in pages", the extension asks for permission to run on all sites. On each page it looks only at form fields that look like code boxes (their type, name, label and size), and shows a small card next to them. When you press Fill, or choose to fill automatically, it types the code into them. It doesn't read the rest of the page and sends nothing from it anywhere. Without that permission, Fill works only on the tab you're on, when you press it.
 
 ## Removing it
 

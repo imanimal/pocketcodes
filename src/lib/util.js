@@ -32,7 +32,7 @@
     every: 1,           // minutes between checks (1, 2 or 5)
     fresh: 10,          // minutes a code counts as fresh: offered for filling, and counted on the badge
     page: false,        // offer codes on sign-in pages (needs the all-sites permission; registers fill.js and offer.js)
-    fill: "ask",        // on those pages: ask (show a chip) | auto (fill it as soon as it arrives)
+    fill: "ask",        // on those pages: ask (show a card) | auto (fill it as soon as it arrives)
     // look (lib/themes.js; night: off | auto (with the system) | schedule | on)
     theme: "standard-light", nightTheme: "standard-dark", night: "auto", nightFrom: "20:00", nightTo: "07:00",
     type: "system",     // system (your system's font) | hyper (Atkinson Hyperlegible); Pocket themes bring their own
