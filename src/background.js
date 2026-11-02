@@ -22,14 +22,14 @@ if (typeof importScripts === "function") {
   /** Puts the offer script on every page (or takes it off). Needs the all-sites permission, asked on the options page. */
   async function registerPage(on) {
     const has = (await api.scripting.getRegisteredContentScripts({ ids: [PAGE_SCRIPT] })).length > 0;
-    if (!on) { if (has) await api.scripting.unregisterContentScripts({ ids: [PAGE_SCRIPT] }); return { ok: true }; }
+    // always registered afresh, so an update that changes the file list takes effect
+    if (has) await api.scripting.unregisterContentScripts({ ids: [PAGE_SCRIPT] });
+    if (!on) return { ok: true };
     if (!(await api.permissions.contains({ origins: ["<all_urls>"] }))) return { error: "AuthSkip doesn't have permission to run on all sites." };
-    if (!has) {
-      await api.scripting.registerContentScripts([{
-        id: PAGE_SCRIPT, matches: ["<all_urls>"], js: ["src/lib/util.js", "src/content/fill.js", "src/content/offer.js"],
-        runAt: "document_idle", allFrames: true, persistAcrossSessions: true,
-      }]);
-    }
+    await api.scripting.registerContentScripts([{
+      id: PAGE_SCRIPT, matches: ["<all_urls>"], js: ["src/lib/util.js", "src/lib/themes.js", "src/content/fill.js", "src/content/offer.js"],
+      runAt: "document_idle", allFrames: true, persistAcrossSessions: true,
+    }]);
     return { ok: true };
   }
 
@@ -83,6 +83,7 @@ if (typeof importScripts === "function") {
   api.runtime.onInstalled.addListener(({ reason }) => {
     schedule().catch(() => {});
     if (reason === "install") api.tabs.create({ url: api.runtime.getURL("src/pages/options.html#welcome") });
+    if (reason === "update") AS.store.settings().then((s) => s.page && registerPage(true)).catch(() => {});
   });
   if (api.permissions && api.permissions.onRemoved) {
     api.permissions.onRemoved.addListener((p) => {

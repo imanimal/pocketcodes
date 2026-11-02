@@ -1,19 +1,34 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-as-on>
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AuthSkip settings</title>
-  <link rel="stylesheet" href="page.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AuthSkip settings</title>
+<link rel="stylesheet" href="../ui/kit.css">
+<link rel="stylesheet" href="page.css">
 </head>
-<body class="options">
-  <header>
-    <h1>AuthSkip</h1>
-    <p class="quiet">One-time codes from every inbox you add, in one list. It only reads mail, and nothing leaves your browser.</p>
-  </header>
-  <main id="app"></main>
-  <script src="../lib/util.js"></script>
-  <script src="../lib/imap.js"></script>
-  <script src="options.js"></script>
+<body>
+<div class="op as-ui">
+  <header class="op-head"><span class="as-logo" aria-hidden="true"><i></i><i></i><i></i></span><h1>AuthSkip</h1></header>
+  <p class="op-lead">Sign-in codes from every inbox you add, in one list. It only reads mail, and nothing leaves your browser.</p>
+  <section class="as-mod op-welcome" id="welcome" hidden>
+    <div class="as-band"><span class="as-bt">Installed</span></div>
+    <div class="as-mb">
+      <ol>
+        <li>Add your accounts below. Gmail needs a free Google sign-in client of your own first (the Gmail section walks you through it); iCloud needs the small helper program and an app-specific password.</li>
+        <li>When a site sends you a code, it shows up in the toolbar button within a few seconds. Fill puts it into the page, or press Alt+Shift+F.</li>
+        <li>Pick a look under Look: Standard, or one of the Pocket themes.</li>
+      </ol>
+    </div>
+  </section>
+  <main class="op-panel" id="panel"></main>
+</div>
+<script src="../lib/util.js"></script>
+<script src="../lib/themes.js"></script>
+<script src="../lib/icons.js"></script>
+<script src="../ui/kit.js"></script>
+<script src="../lib/imap.js"></script>
+<script src="../ui/look.js"></script>
+<script src="options.js"></script>
 </body>
 </html>

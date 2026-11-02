@@ -18,7 +18,7 @@ import os
 import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-INCLUDE = ["LICENSE", "README.md", "PRIVACY.md", "src", "icons", "host"]
+INCLUDE = ["LICENSE", "README.md", "PRIVACY.md", "src", "icons", "fonts", "host"]
 SKIP_DIRS = {"__pycache__", ".git", "node_modules"}
 SKIP_EXT = {".pyc", ".pyo"}
 STAMP = (2026, 1, 1, 0, 0, 0)

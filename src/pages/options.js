@@ -1,202 +1,237 @@
-/* AuthSkip: the settings page (opens in a tab). Reads storage; the background script does every account write, so
-   adding, signing in again and removing are messages. The pages write only settings, google and microsoft. */
+/* AuthSkip: the settings page (opens in a tab). Sections: Accounts, Gmail, Outlook, iCloud and IMAP (the helper),
+   Checking, Look (ui/look.js) and Data. Reads storage; the background script does every account write, so adding,
+   signing in again and removing are messages. The page writes only settings, themes, google and microsoft.
+   Painted in the theme it sets; #welcome (opened once, on install) adds the three things to know first, and any other
+   hash scrolls to that section. */
 (function (g) {
-  const AS = g.AS;
-  const api = AS.api;
-  const esc = AS.esc;
-  const app = document.getElementById("app");
+  const AS = g.AS, api = AS.api, T = AS.themes, K = AS.kit, esc = AS.esc;
+  const panel = document.getElementById("panel"), root = document.documentElement;
   const redirect = (() => { try { return api.identity.getRedirectURL(); } catch (e) { return ""; } })();
-  let S = { accounts: [], settings: AS.DEFAULTS, google: {}, microsoft: {}, st: {}, meta: {} };
-  let ui = { addImap: false, preset: "icloud", note: "", noteBad: false, helper: null, armed: null, working: null };
-  const keepOpen = { imap: false };
+  const CMD = "python host/install_host.py";
+  const SECTIONS = [["accounts", "Accounts"], ["gmail", "Gmail"], ["outlook", "Outlook"], ["helper", "iCloud and IMAP"], ["checking", "Checking"], ["look", "Look"], ["data", "Data"]];
+  let S = { accounts: [], settings: AS.DEFAULTS, themes: [], google: {}, microsoft: {}, st: {} };
+  const ui = { imap: null, note: "", noteBad: false, helper: null, working: null };
+  const look = AS.look.panel({ settings: () => S.settings, mine: () => S.themes, render: () => render() });
+  // icons in the look the page is about to show
+  const ic = (n, c) => AS.ic(n, c, AS.previewing ? root.dataset.asLook : T.pick(S.settings, T.BUILTIN.concat(S.themes)).look);
 
   async function load() {
-    const r = await api.storage.local.get(["accounts", "settings", "google", "microsoft", "meta"]);
+    const r = await api.storage.local.get(["accounts", "settings", "themes", "google", "microsoft"]);
     const accounts = r.accounts || [];
-    const st = await api.storage.local.get(accounts.map((a) => "st:" + a.id));
-    S = { accounts, settings: Object.assign({}, AS.DEFAULTS, r.settings || {}), google: r.google || {}, microsoft: r.microsoft || {}, st, meta: r.meta || {} };
+    const st = accounts.length ? await api.storage.local.get(accounts.map((a) => "st:" + a.id)) : {};
+    S = { accounts, settings: Object.assign({}, AS.DEFAULTS, r.settings || {}), themes: r.themes || [], google: r.google || {}, microsoft: r.microsoft || {}, st };
   }
+  function paint() { if (!AS.previewing) T.look(S.settings, T.BUILTIN.concat(S.themes), root); }
 
-  const stat = (a) => {
-    const s = S.st["st:" + a.id];
-    if (!s) return `<span class="quiet">Not checked yet</span>`;
-    return s.ok ? `<span class="quiet">Checked ${esc(AS.ago(s.at))}</span>` : `<span class="bad">${esc(s.error)}</span>`;
-  };
+  // ── parts ──
+  const sec = (id, icon, title, lead, body) => `<section class="as-sec" id="as-s-${id}"><h3>${ic(icon)}${esc(title)}</h3>${lead ? `<p class="as-lead">${esc(lead)}</p>` : ""}${body}</section>`;
+  const chips = (name, value, opts, label) => `<div class="as-seg" role="radiogroup" aria-label="${esc(label)}">${opts.map(([v, l]) =>
+    `<button type="button" class="as-chip${v === value ? " on" : ""}" role="radio" aria-checked="${v === value}" data-act="set" data-set="${name}" data-v="${esc(v)}" data-k="set-${name}-${esc(v)}">${esc(l)}</button>`).join("")}</div>`;
+  const pickOpt = (title, desc, body) => `<div class="as-opt col"><div><b>${esc(title)}</b>${desc ? `<span class="as-od">${esc(desc)}</span>` : ""}</div>${body}</div>`;
+  const sw = (title, desc, attrs) => `<label class="as-opt"><div><b>${esc(title)}</b><span class="as-od">${esc(desc)}</span></div><input type="checkbox" class="as-switch" ${attrs}></label>`;
+  const copyRow = (value, label) => `<div class="op-copy"><input type="text" readonly value="${esc(value)}" aria-label="${esc(label)}">${K.key({ icon: "copy", label: "Copy", cls: "sm", act: "copy", attrs: `data-v="${esc(value)}"` })}</div>`;
+  const field = (label, attrs, hint) => `<label class="op-field">${esc(label)}<input ${attrs}>${hint ? `<span>${esc(hint)}</span>` : ""}</label>`;
+  const note = () => (ui.note ? `<p class="as-note${ui.noteBad ? " bad" : ""}" role="status">${esc(ui.note)}</p>` : "");
 
-  function acctRow(a) {
-    const s = S.st["st:" + a.id];
-    const again = s && !s.ok && s.auth ? `<button data-act="reauth" data-id="${esc(a.id)}" class="go">Sign in again</button>` : "";
-    const rm = ui.armed === a.id ? `<button data-act="remove" data-id="${esc(a.id)}" class="bad">Remove? Press again</button>` : `<button data-act="remove" data-id="${esc(a.id)}">Remove</button>`;
-    return `<div class="acct"><div class="who"><span><span class="tag">${esc(AS.kindLabel(a))}</span><b>${esc(a.email)}</b></span>${stat(a)}</div>
-      <div class="row">${again}${rm}</div></div>`;
+  function accounts() {
+    const rows = S.accounts.map((a) => {
+      const s = S.st["st:" + a.id];
+      const state = !s ? `<span class="as-od">${esc(AS.kindLabel(a))} · Not checked yet</span>`
+        : s.ok ? `<span class="as-od">${esc(AS.kindLabel(a))} · Checked ${esc(AS.ago(s.at))}</span>`
+        : `<span class="as-od bad">${esc(AS.kindLabel(a))} · ${esc(s.error)}</span>`;
+      const again = s && !s.ok && s.auth
+        ? a.kind === "imap" ? K.key({ label: "Add again", cls: "sm primary", act: "imapAgain", id: a.id }) : K.key({ label: "Sign in again", cls: "sm primary", act: "reauth", id: a.id, disabled: !!ui.working })
+        : "";
+      return `<div class="as-opt op-acct"><div><b>${esc(a.email)}</b>${state}</div><div class="as-row2">${again}${K.key({ label: "Remove", cls: "sm", act: "remove", id: a.id })}</div></div>`;
+    }).join("");
+    const wait = (kind, label, busy) => (ui.working === kind ? busy : label);
+    const adds = `<div class="as-row2" style="padding:12px 0 4px">
+      ${K.key({ label: wait("google", "Add Gmail", "Waiting for Google…"), icon: "plus", act: "addOAuth", attrs: 'data-kind="google"', disabled: !!ui.working })}
+      ${K.key({ label: wait("microsoft", "Add Outlook", "Waiting for Microsoft…"), icon: "plus", act: "addOAuth", attrs: 'data-kind="microsoft"', disabled: !!ui.working })}
+      ${K.key({ label: "Add iCloud or IMAP", icon: "plus", act: "showImap", disabled: !!ui.working })}</div>`;
+    return sec("accounts", "person", "Accounts", "Add as many as you like. Each one is checked on its own, read-only.",
+      (rows || '<p class="as-note" style="padding:8px 0">No accounts yet.</p>') + adds + (ui.imap ? imapForm() : "") + note());
   }
 
   function imapForm() {
-    const p = AS.imap.presets[ui.preset];
-    const custom = ui.preset === "custom";
-    return `<form class="box" data-form="imap" autocomplete="off">
-      <div class="grid2">
-        <label>Provider<select name="preset">${Object.entries(AS.imap.presets).map(([k, v]) => `<option value="${k}" ${k === ui.preset ? "selected" : ""}>${esc(v.label)}</option>`).join("")}</select></label>
-        <label>Email address<input type="email" name="email" required autocomplete="off" placeholder="you@icloud.com"></label>
-      </div>
-      <label>Password<input type="password" name="password" required autocomplete="off" placeholder="App-specific password"></label>
-      <p class="quiet">Use ${esc(p.secret)}. ${ui.preset === "icloud" ? "Your Apple ID password won't work. " : ""}It goes straight to the helper, which keeps it in this computer's own vault; this extension never stores it.</p>
-      ${custom ? `<div class="grid2"><label>IMAP server<input type="text" name="host" placeholder="imap.example.com"></label><label>Port<input type="number" name="port" value="993"></label></div>
-        <label>Username (if it isn't the address)<input type="text" name="user" autocomplete="off"></label>` : ""}
-      <div class="row"><button class="go" type="submit" ${ui.working === "imap" ? "disabled" : ""}>${ui.working === "imap" ? "Checking the login…" : "Add account"}</button>
-        <button type="button" data-act="cancelImap">Cancel</button></div>
-    </form>`;
+    const f = ui.imap, p = AS.imap.presets[f.preset] || AS.imap.presets.custom, custom = f.preset === "custom";
+    return `<form class="as-mod op-form" data-form="imap" autocomplete="off">
+      <div class="as-band"><span class="as-bt">${ic("mail")}Add an iCloud or IMAP account</span><span class="as-sp"></span>${K.key({ icon: "close", title: "Cancel", cls: "ghost sm", act: "cancelImap" })}</div>
+      <div class="as-mb">
+        <div class="op-grid2">
+          <label class="op-field">Provider<select name="preset" data-k="preset">${Object.entries(AS.imap.presets).map(([k, v]) => `<option value="${k}"${k === f.preset ? " selected" : ""}>${esc(v.label)}</option>`).join("")}</select></label>
+          ${field("Email address", `type="email" name="email" required autocomplete="off" placeholder="you@icloud.com" value="${esc(f.email || "")}" data-k="email"`)}
+        </div>
+        ${field("Password", 'type="password" name="password" required autocomplete="off" placeholder="App-specific password" data-k="password"', `Use ${p.secret}.${f.preset === "icloud" ? " Your Apple Account password won't work." : ""} It goes straight to the helper, which keeps it in this computer's own vault; the extension never stores it.`)}
+        ${custom ? `<div class="op-grid2">${field("IMAP server", `type="text" name="host" placeholder="imap.example.com" value="${esc(f.host || "")}"`)}${field("Port", `type="number" name="port" value="${esc(f.port || 993)}"`)}</div>
+          ${field("Username, if it isn't the address", `type="text" name="user" autocomplete="off" value="${esc(f.user || "")}"`)}` : ""}
+        <div class="as-row2"><button type="submit" class="as-key primary"${ui.working === "imap" ? " disabled" : ""}><span class="as-kl">${ui.working === "imap" ? "Checking the login…" : "Add account"}</span></button>${K.key({ label: "Cancel", act: "cancelImap" })}</div>
+      </div></form>`;
   }
 
-  function draw() {
+  function gmail() {
+    const c = S.google;
+    return sec("gmail", "lock", "Gmail", "Gmail needs a sign-in client of your own. It's free, takes about five minutes, and nothing is shared with anyone, which is also why there's no limit on accounts.",
+      `<ol class="op-steps">
+        <li>In <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud</a>, create a project and turn on the <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank" rel="noopener">Gmail API</a>.</li>
+        <li>Under <b>Google Auth Platform</b>, choose audience <b>External</b> and add the scope <code>gmail.readonly</code>. Publish the app (it stays unverified, which is fine for you), or add each address as a test user. Test mode ends sign-ins after 7 days.</li>
+        <li>Under <b>Clients</b>, create a <b>Web application</b> client with this redirect URI:</li>
+      </ol>
+      ${copyRow(redirect, "Redirect URI")}
+      <div class="op-grid2" style="margin-top:12px">${field("Client ID", `type="text" data-store="google.clientId" value="${esc(c.clientId || "")}" autocomplete="off" spellcheck="false" data-k="gid"`)}${field("Client secret", `type="password" data-store="google.clientSecret" value="${esc(c.clientSecret || "")}" autocomplete="off" data-k="gsecret"`)}</div>
+      <p class="as-note" style="padding-top:10px">Work and school Google accounts can be blocked from apps like this by their admin. If sign-in says access is blocked, forward that account's mail to a Gmail address you can add.</p>`);
+  }
+
+  function outlook() {
+    return sec("outlook", "lock", "Outlook", "Only for Outlook, Hotmail or Microsoft 365. Untested so far: written to Microsoft's documentation, without a real account to try.",
+      `<ol class="op-steps">
+        <li>Register an app in <a href="https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener">Microsoft Entra</a> for <b>personal and work accounts</b>.</li>
+        <li>Add a <b>Mobile and desktop applications</b> platform with this redirect URI, and allow public client flows:</li>
+      </ol>
+      ${copyRow(redirect, "Redirect URI")}
+      <div style="margin-top:12px">${field("Application (client) ID", `type="text" data-store="microsoft.clientId" value="${esc(S.microsoft.clientId || "")}" autocomplete="off" spellcheck="false" data-k="mid"`)}</div>`);
+  }
+
+  function helper() {
+    const h = ui.helper;
+    return sec("helper", "mail", "iCloud and IMAP", "A browser extension can't open an IMAP connection, so a small helper does it: one Python file with no dependencies, in the extension's host folder. It only answers AuthSkip, and it keeps passwords in your computer's own vault.",
+      `<div class="as-opt col"><div><b>Install it once</b><span class="as-od">Run this in the extension's folder, then restart the browser. Run it again after an update.</span></div>${copyRow(CMD, "Command")}</div>
+      <div class="as-opt"><div><b>Check the helper</b><span class="as-od" role="status"${h && !h.ok ? ' style="color:var(--as-bad)"' : ""}>${esc(h ? h.text : "Asks the helper which version is installed.")}</span></div>${K.key({ label: "Check", cls: "sm", act: "helper" })}</div>`);
+  }
+
+  function checking() {
     const s = S.settings;
-    const g1 = S.google, m1 = S.microsoft;
-    const helper = ui.helper;
-    const cmd = "python host/install_host.py";
-    AS.mount(app, `
-      <section id="welcome">
-        <h2>Accounts</h2>
-        ${S.accounts.length ? S.accounts.map(acctRow).join("") : `<p class="quiet">No accounts yet. Add as many as you like; each one is checked on its own.</p>`}
-        <div class="row">
-          <button data-act="addOAuth" data-kind="google" ${ui.working === "google" ? "disabled" : ""}>${ui.working === "google" ? "Waiting for Google…" : "Add Gmail"}</button>
-          <button data-act="addOAuth" data-kind="microsoft" ${ui.working === "microsoft" ? "disabled" : ""}>${ui.working === "microsoft" ? "Waiting for Microsoft…" : "Add Outlook"}</button>
-          <button data-act="showImap">Add iCloud or other IMAP</button>
-        </div>
-        ${ui.addImap ? imapForm() : ""}
-        <p class="status ${ui.noteBad ? "bad" : "good"}" role="status">${esc(ui.note)}</p>
-      </section>
-
-      <section id="google">
-        <h2>Google sign-in</h2>
-        <p class="quiet">Gmail needs an OAuth client of your own, which is free and takes about five minutes. That is also why there is no limit on accounts: nothing is shared with anyone.</p>
-        <ol>
-          <li>In <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud</a>, create a project and turn on the <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank" rel="noopener">Gmail API</a>.</li>
-          <li>Under <b>Google Auth Platform</b> set it up as <b>External</b>. Add the Gmail scope <code>gmail.readonly</code>, and either publish the app (it stays "unverified", which is fine for you) or add each address as a test user. Test mode expires sign-ins after 7 days.</li>
-          <li>Under <b>Clients</b> create an OAuth client of type <b>Web application</b> and add this redirect URI:</li>
-        </ol>
-        <div class="copy"><input type="text" readonly value="${esc(redirect)}" aria-label="Redirect URI"><button data-act="copyRedirect">Copy</button></div>
-        <div class="grid2">
-          <label>Client ID<input type="text" data-set="google.clientId" value="${esc(g1.clientId || "")}" autocomplete="off" spellcheck="false"></label>
-          <label>Client secret<input type="password" data-set="google.clientSecret" value="${esc(g1.clientSecret || "")}" autocomplete="off"></label>
-        </div>
-        <p class="quiet">Work and school Google accounts (such as ucsb.edu) may be blocked by their admin from third-party apps. If sign-in says access is blocked, forward that account's mail to a Gmail address you can add.</p>
-      </section>
-
-      <section id="microsoft">
-        <h2>Microsoft sign-in</h2>
-        <p class="quiet">Only needed for Outlook, Hotmail or Microsoft 365. Register an app in <a href="https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener">Microsoft Entra</a> with account type <b>Personal and work accounts</b>, add a <b>Mobile and desktop applications</b> platform with this redirect URI, then paste the application (client) ID. This one is untested; the author has no Microsoft account.</p>
-        <div class="copy"><input type="text" readonly value="${esc(redirect)}" aria-label="Redirect URI"><button data-act="copyRedirect">Copy</button></div>
-        <label>Application (client) ID<input type="text" data-set="microsoft.clientId" value="${esc(m1.clientId || "")}" autocomplete="off" spellcheck="false"></label>
-      </section>
-
-      <section id="helper">
-        <h2>IMAP helper</h2>
-        <p class="quiet">iCloud and other IMAP mailboxes need a small helper program, because a browser extension can't open an IMAP connection. It is one Python file with no dependencies (host/), and it only answers this extension.</p>
-        <p>Install it once from the AuthSkip folder, then restart the browser:</p>
-        <div class="copy"><input type="text" readonly value="${esc(cmd)}" aria-label="Command"><button data-act="copyCmd">Copy</button></div>
-        <div class="row"><button data-act="helper">Check the helper</button>
-          <span class="status ${helper && helper.ok ? "good" : "bad"}">${helper ? esc(helper.text) : ""}</span></div>
-      </section>
-
-      <section id="settings">
-        <h2>Settings</h2>
-        <label class="check"><input type="checkbox" data-set="settings.notify" ${s.notify ? "checked" : ""}><span>Show a notification when a new code arrives</span></label>
-        <div class="grid2">
-          <label>Check every<select data-set="settings.every" data-num="1">${[1, 2, 5].map((n) => `<option value="${n}" ${s.every === n ? "selected" : ""}>${n} minute${n > 1 ? "s" : ""}</option>`).join("")}</select></label>
-          <label>A code counts as fresh for<select data-set="settings.fresh" data-num="1">${[5, 10, 15, 30].map((n) => `<option value="${n}" ${s.fresh === n ? "selected" : ""}>${n} minutes</option>`).join("")}</select></label>
-        </div>
-        <label class="check"><input type="checkbox" data-act="page" ${s.page ? "checked" : ""}><span>Offer codes on sign-in pages<br><span class="quiet">Shows a small chip by a code box with the newest fresh code. This asks for permission to run on all sites; the script only looks at the boxes' own names and sends nothing anywhere.</span></span></label>
-        <label ${s.page ? "" : "hidden"}>On those pages<select data-set="settings.fill"><option value="ask" ${s.fill === "ask" ? "selected" : ""}>Show the code and let me press Fill</option><option value="auto" ${s.fill === "auto" ? "selected" : ""}>Fill it as soon as it arrives</option></select></label>
-        <p class="quiet">Without that, the toolbar popup's Fill key and <kbd>Alt+Shift+F</kbd> fill the page you're on. Change the shortcuts in your browser's extension shortcuts page.</p>
-        <div class="row"><button data-act="clear">Forget the codes found so far</button></div>
-      </section>`);
-    if (g.location.hash && !draw.scrolled) { draw.scrolled = true; const t = document.querySelector(g.location.hash); if (t) t.scrollIntoView(); }
+    return sec("checking", "clock", "Checking and filling", "",
+      sw("Notify me of new codes", "A notification when a code arrives.", `data-set="notify" data-k="sw-notify"${s.notify ? " checked" : ""}`)
+      + pickOpt("Check every", "Every inbox, while the browser is open. The popup and sign-in pages check every few seconds.", chips("every", String(s.every), [["1", "Minute"], ["2", "2 minutes"], ["5", "5 minutes"]], "Check every"))
+      + pickOpt("A code counts as fresh for", "Fresh codes are counted on the toolbar button and offered for filling.", chips("fresh", String(s.fresh), [["5", "5 minutes"], ["10", "10 minutes"], ["15", "15 minutes"], ["30", "30 minutes"]], "Fresh for"))
+      + sw("Offer codes on sign-in pages", "A small card by a code box with the newest fresh code. This asks to run on all sites; it only looks at the boxes' own names and sends nothing anywhere.", `data-act="page" data-k="sw-page"${s.page ? " checked" : ""}`)
+      + (s.page ? pickOpt("On those pages", "", chips("fill", s.fill, [["ask", "Show the code, I press Fill"], ["auto", "Fill it as soon as it arrives"]], "On those pages")) : "")
+      + `<p class="as-note" style="padding:8px 0 12px">Without that, Fill in the popup and <kbd>Alt+Shift+F</kbd> fill the page you're on. Change the keys in your browser's extension shortcuts page.</p>`);
   }
 
-  const note = (text, bad) => { ui.note = text; ui.noteBad = !!bad; draw(); };
-
-  async function setPath(path, value) {
-    const [root, key] = path.split(".");
-    if (root === "settings") { await AS.store.setSettings({ [key]: value }); await AS.send({ type: "settings" }).catch(() => {}); }
-    else { const cur = await AS.store.get(root, {}); cur[key] = value; await AS.store.set(root, cur); }
+  function data() {
+    const ver = api.runtime.getManifest ? api.runtime.getManifest().version : "";
+    return sec("data", "trash", "Data", "Codes are kept for a day, with the sender's name and the subject; message bodies are read and dropped. Everything stays in this browser.",
+      `<div class="as-opt"><div><b>Forget the codes found so far</b><span class="as-od">Accounts and settings stay.</span></div>${K.key({ label: "Forget codes", cls: "sm", act: "clear" })}</div>
+      <p class="as-note" style="padding-top:12px">AuthSkip ${esc(ver)}.</p>`);
   }
 
-  async function act(el) {
-    const a = el.dataset.act;
-    if (a === "addOAuth") {
-      ui.working = el.dataset.kind; note("");
-      const r = await AS.send({ type: "addOAuth", kind: el.dataset.kind });
+  function render() {
+    const f = document.activeElement, k = f && panel.contains(f) ? f.dataset.k : null;
+    panel.replaceChildren(AS.frag(`<nav class="as-set-nav" aria-label="Settings sections">${SECTIONS.map(([id, l]) => `<button type="button" class="as-chip" data-act="jump" data-id="${id}">${l}</button>`).join("")}</nav>
+      <div class="as-set">${accounts()}${gmail()}${outlook()}${helper()}${checking()}${sec("look", "palette", "Look", "Pick a theme for the day and one for night. Standard is plain; Pocket themes are the handheld look from Collegiapp.", look.html())}${data()}</div>`));
+    if (k) { const n = panel.querySelector(`[data-k="${CSS.escape(k)}"]`); if (n) n.focus({ preventScroll: true }); }
+  }
+  const say = (text, bad) => { ui.note = text; ui.noteBad = !!bad; render(); };
+  const jump = (id) => { const s = panel.querySelector(`#as-s-${id}`); if (s) s.scrollIntoView({ block: "start" }); };
+
+  // ── actions ──
+  async function act(b) {
+    const a = b.dataset.act, id = b.dataset.id;
+    if (a === "jump") jump(id);
+    else if (a === "set") { await AS.store.setSettings({ [b.dataset.set]: /^\d+$/.test(b.dataset.v) ? Number(b.dataset.v) : b.dataset.v }); await AS.send({ type: "settings" }).catch(() => {}); }
+    else if (a === "copy") { try { await navigator.clipboard.writeText(b.dataset.v); K.toast("Copied"); } catch (e) { K.toast("Couldn't copy here. Select it and press Ctrl+C."); } }
+    else if (a === "addOAuth") {
+      ui.working = b.dataset.kind; say("");
+      const r = await AS.send({ type: "addOAuth", kind: b.dataset.kind });
       ui.working = null;
-      note(r && r.error ? r.error : `Added ${r.account.email}.`, r && r.error);
+      say(r && r.error ? r.error : `Added ${r.account.email}.`, r && r.error);
     } else if (a === "reauth") {
-      const acct = S.accounts.find((x) => x.id === el.dataset.id);
-      ui.working = acct.kind;
+      const acct = S.accounts.find((x) => x.id === id);
+      ui.working = acct.kind; render();
       const r = await AS.send({ type: "addOAuth", kind: acct.kind, hint: acct.email });
       ui.working = null;
-      note(r && r.error ? r.error : `Signed ${acct.email} in again.`, r && r.error);
+      say(r && r.error ? r.error : `Signed ${acct.email} in again.`, r && r.error);
     } else if (a === "remove") {
-      if (ui.armed !== el.dataset.id) { ui.armed = el.dataset.id; draw(); return; }
-      ui.armed = null;
-      await AS.send({ type: "remove", id: el.dataset.id });
-      note("Removed. Its sign-in and stored codes are gone.");
-    } else if (a === "showImap") { ui.addImap = true; draw(); }
-    else if (a === "cancelImap") { ui.addImap = false; draw(); }
-    else if (a === "copyRedirect") { await navigator.clipboard.writeText(redirect); note("Copied the redirect URI."); }
-    else if (a === "copyCmd") { await navigator.clipboard.writeText("python host/install_host.py"); note("Copied. Run it in the AuthSkip folder."); }
+      K.twice(b, "Remove?", async () => { await AS.send({ type: "remove", id }); say("Removed. Its sign-in and codes are gone."); });
+    } else if (a === "showImap") { ui.imap = { preset: "icloud" }; render(); }
+    else if (a === "imapAgain") {
+      const acct = S.accounts.find((x) => x.id === id);
+      const preset = Object.keys(AS.imap.presets).find((k) => AS.imap.presets[k].host === acct.host) || "custom";
+      ui.imap = { preset, email: acct.email, host: acct.host, port: acct.port, user: acct.user !== acct.email ? acct.user : "" };
+      render(); jump("accounts");
+    } else if (a === "cancelImap") { ui.imap = null; render(); }
     else if (a === "helper") {
-      ui.helper = { ok: false, text: "Checking…" }; draw();
+      ui.helper = { ok: true, text: "Checking…" }; render();
       const r = await AS.send({ type: "helper" });
       ui.helper = r && r.ok ? { ok: true, text: `Installed: version ${r.helper.version} on ${r.helper.os}.` } : { ok: false, text: (r && r.error) || "No answer." };
-      draw();
-    } else if (a === "clear") { await AS.send({ type: "clear" }); note("Cleared."); }
+      render();
+    } else if (a === "clear") K.twice(b, "Forget them?", async () => { await AS.send({ type: "clear" }); K.toast("Forgot the codes"); });
   }
 
   async function togglePage(box) {
     if (box.checked) {
       // the permission prompt needs this click, so ask before anything else is awaited
       const ok = await api.permissions.request({ origins: ["<all_urls>"] });
-      if (!ok) { box.checked = false; note("Without that permission the chip can't appear.", true); return; }
+      if (!ok) { box.checked = false; K.toast("Without that permission the card can't appear."); return; }
       const r = await AS.send({ type: "page", on: true });
-      if (r && r.error) { box.checked = false; note(r.error, true); return; }
+      if (r && r.error) { box.checked = false; K.toast(r.error); return; }
       await AS.store.setSettings({ page: true });
     } else {
       await AS.send({ type: "page", on: false });
       await api.permissions.remove({ origins: ["<all_urls>"] }).catch(() => {});
       await AS.store.setSettings({ page: false });
     }
-    await load(); draw();
   }
 
-  app.addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-act]");
-    if (b) act(b).catch((err) => note(String((err && err.message) || err), true));
+  async function store(path, value) {
+    const [key, name] = path.split(".");
+    const cur = await AS.store.get(key, {});
+    cur[name] = value;
+    await AS.store.set(key, cur);
+  }
+
+  const fail = (err) => { ui.working = null; say(String((err && err.message) || err), true); };
+  panel.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-act]");
+    if (!b || b.tagName === "INPUT") return;
+    if (look.click(b)) return;
+    act(b).catch(fail);
   });
-  app.addEventListener("change", (e) => {
+  panel.addEventListener("change", (e) => {
     const t = e.target;
-    if (t.dataset.act === "page") { togglePage(t).catch((err) => note(String((err && err.message) || err), true)); return; }
-    if (t.name === "preset" && t.form && t.form.dataset.form === "imap") { ui.preset = t.value; draw(); return; }
-    if (t.dataset.set) {
-      const v = t.type === "checkbox" ? t.checked : t.dataset.num ? Number(t.value) : t.value.trim();
-      setPath(t.dataset.set, v).then(() => AS.send({ type: "settings" }).catch(() => {}));
+    if (look.change(t)) return;
+    if (t.dataset.act === "page") togglePage(t).catch(fail);
+    else if (t.matches("input.as-switch[data-set]")) AS.store.setSettings({ [t.dataset.set]: t.checked });
+    else if (t.dataset.store) store(t.dataset.store, t.value.trim());
+    else if (t.name === "preset" && ui.imap) {
+      const d = Object.fromEntries(new FormData(t.form));
+      ui.imap = { preset: t.value, email: d.email, host: d.host, port: d.port, user: d.user };
+      render();
     }
   });
-  app.addEventListener("submit", async (e) => {
+  panel.addEventListener("input", (e) => { look.input(e.target); });
+  panel.addEventListener("keydown", (e) => { look.key(e); });
+  panel.addEventListener("toggle", (e) => look.toggle(e), true);
+  panel.addEventListener("submit", async (e) => {
     e.preventDefault();
     const f = e.target;
     if (f.dataset.form !== "imap") return;
     const d = Object.fromEntries(new FormData(f));
-    ui.working = "imap"; note("");
-    const r = await AS.send(Object.assign({ type: "addImap" }, d));
+    ui.imap = Object.assign({}, ui.imap, { email: d.email, host: d.host, port: d.port, user: d.user });
+    ui.working = "imap"; ui.note = ""; render();
+    const r = await AS.send(Object.assign({ type: "addImap" }, d)).catch((err) => ({ error: String((err && err.message) || err) }));
     ui.working = null;
-    if (r && r.error) { ui.addImap = true; note(r.error + (r.code === "no-host" ? "" : ""), true); return; }
-    ui.addImap = false;
-    note(`Added ${r.account.email}.`);
+    if (r && r.error) { say(r.error, true); return; }
+    ui.imap = null;
+    say(`Added ${r.account.email}.`);
   });
 
+  // The background writes storage every minute; a repaint waits while you're typing, filling in the IMAP form or
+  // adjusting colors, so it never wipes what you've typed. Your own settings and themes changes always repaint.
+  const typing = () => !!ui.imap || look.busy() || (document.activeElement && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName) && document.activeElement.type !== "checkbox");
   api.storage.onChanged.addListener((ch, area) => {
-    if (area !== "local" || ui.working || (document.activeElement && /^(INPUT|SELECT)$/.test(document.activeElement.tagName))) return;
-    load().then(draw);
+    if (area !== "local") return;
+    load().then(() => { paint(); if (ch.settings || ch.themes || !typing()) render(); });
   });
-  load().then(draw);
-  setInterval(() => { if (!ui.working && !(document.activeElement && /^(INPUT|SELECT)$/.test(document.activeElement.tagName))) load().then(draw); }, 15000);
+  if (g.matchMedia) g.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { paint(); render(); });
+
+  load().then(() => {
+    paint();
+    render();
+    const h = g.location.hash.slice(1);
+    if (h === "welcome") document.getElementById("welcome").hidden = false;
+    else if (h) jump(h);
+  });
 })(globalThis);
