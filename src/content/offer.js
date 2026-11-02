@@ -1,4 +1,4 @@
-/* PocketCodes: the offer on sign-in pages, for people who turned on "Offer codes on sign-in pages" (which asks for the
+/* AuthSkip: the offer on sign-in pages, for people who turned on "Offer codes on sign-in pages" (which asks for the
    all-sites permission and registers fill.js and offer.js on every page). It does three things and keeps nothing:
    it looks for code boxes (fill.js), it reads the codes the background script found out of storage, and when a fresh
    one exists it draws a small chip by the box: the code, where it came from, and a Fill key (or, in "fill it for me"
@@ -6,14 +6,14 @@
    the inboxes every five seconds for up to three minutes, so the code shows up as soon as the email does.
    Nothing on the page is read except the boxes' own attributes, and nothing from the page is sent anywhere. */
 (function (g) {
-  const PC = g.PC;
-  const api = PC.api;
-  if (!PC.fill || PC.offerOn || g.top !== g.self && g.innerWidth < 120) return;
-  PC.offerOn = true;
+  const AS = g.AS;
+  const api = AS.api;
+  if (!AS.fill || AS.offerOn || g.top !== g.self && g.innerWidth < 120) return;
+  AS.offerOn = true;
 
   const doc = g.document;
   let host = null, shadow = null, chip = null, label = null, sub = null;
-  let targets = [], target = null, offer = null, settings = PC.DEFAULTS;
+  let targets = [], target = null, offer = null, settings = AS.DEFAULTS;
   const dismissed = new Set();
   const filledAuto = new Set();
   let armedAt = 0, ticks = 0, timer = 0, scanTimer = 0, raf = 0;
@@ -36,7 +36,7 @@
     }`;
 
   function build() {
-    host = doc.createElement("pocketcodes-chip");
+    host = doc.createElement("authskip-chip");
     host.style.cssText = "all:initial;position:fixed;top:0;left:0;width:0;height:0;z-index:2147483647;";
     shadow = host.attachShadow({ mode: "closed" });
     const style = doc.createElement("style");
@@ -44,7 +44,7 @@
     chip = doc.createElement("div");
     chip.className = "chip";
     chip.setAttribute("role", "group");
-    chip.setAttribute("aria-label", "PocketCodes");
+    chip.setAttribute("aria-label", "AuthSkip");
     const fillKey = doc.createElement("button");
     fillKey.className = "fill";
     fillKey.type = "button";
@@ -71,7 +71,7 @@
     raf = 0;
     if (!chip || !offer || !target) return;
     const el = target.el || target.els[0];
-    if (!PC.fill.visible(el)) { chip.style.display = "none"; return; }
+    if (!AS.fill.visible(el)) { chip.style.display = "none"; return; }
     const r = el.getBoundingClientRect();
     chip.style.display = "flex";
     const h = chip.offsetHeight || 44, w = chip.offsetWidth || 220;
@@ -86,7 +86,7 @@
 
   function use() {
     if (!offer || !target) return;
-    if (PC.fill.fill(offer.code, [target])) {
+    if (AS.fill.fill(offer.code, [target])) {
       api.runtime.sendMessage({ type: "used", id: offer.id }).catch(() => {});
       dismissed.add(offer.id);
       offer = null;
@@ -96,11 +96,11 @@
   function dismiss() { if (offer) dismissed.add(offer.id); offer = null; hide(); }
 
   async function refresh() {
-    settings = await PC.store.settings();
+    settings = await AS.store.settings();
     if (!targets.length) { offer = null; hide(); return; }
-    const codes = await PC.store.get("codes", []);
+    const codes = await AS.store.get("codes", []);
     const now = Date.now();
-    offer = codes.find((c) => !c.used && !dismissed.has(c.id) && now - c.at < settings.fresh * PC.MIN) || null;
+    offer = codes.find((c) => !c.used && !dismissed.has(c.id) && now - c.at < settings.fresh * AS.MIN) || null;
     if (!offer) { hide(); return; }
     if (settings.fill === "auto" && !filledAuto.has(offer.id)) {
       filledAuto.add(offer.id);
@@ -109,7 +109,7 @@
     }
     if (!chip) build();
     label.textContent = group(offer.code);
-    sub.textContent = `${offer.from} · ${offer.email} · ${PC.ago(offer.at)}`;
+    sub.textContent = `${offer.from} · ${offer.email} · ${AS.ago(offer.at)}`;
     place();
   }
 
@@ -131,7 +131,7 @@
 
   function scan() {
     scanTimer = 0;
-    targets = PC.fill.find();
+    targets = AS.fill.find();
     const active = doc.activeElement;
     target = targets.find((t) => (t.el || null) === active || (t.els && t.els.includes(active))) || targets[0] || null;
     if (targets.length) arm();

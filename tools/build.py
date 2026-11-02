@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Packages PocketCodes for each browser: dist/pocketcodes-<version>-firefox.zip and -chrome.zip.
+"""Packages AuthSkip for each browser: dist/authskip-<version>-firefox.zip and -chrome.zip.
 
     python tools/build.py           both zips
     python tools/build.py --store   the same, with Chrome's "key" left out too (the Chrome Web Store sets the ID)
@@ -86,7 +86,7 @@ def main(argv=None):
     dist = os.path.join(ROOT, "dist")
     os.makedirs(dist, exist_ok=True)
     for browser in ("firefox", "chrome"):
-        out = os.path.join(dist, "pocketcodes-%s-%s.zip" % (base["version"], browser))
+        out = os.path.join(dist, "authskip-%s-%s.zip" % (base["version"], browser))
         write_zip(out, manifest_for(base, browser, a.store), names)
         print("%s  (%d files, %d KB)" % (os.path.relpath(out, ROOT), len(names) + 1, (os.path.getsize(out) + 1023) // 1024))
 

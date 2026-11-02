@@ -1,17 +1,17 @@
-# PocketCodes
+# AuthSkip
 
 One-time sign-in codes from every inbox you add (any number of Gmail, Outlook and iCloud or other IMAP accounts), in one list in your toolbar, with one-click fill. It runs in Firefox and in Chrome, Edge and Brave from the same folder.
 
 - **Reads only.** Gmail is read with the `gmail.readonly` scope and Outlook with `Mail.Read`. IMAP mailboxes are opened with `EXAMINE` and `BODY.PEEK`. Nothing is ever sent, deleted, moved or marked read.
-- **Keeps only the code.** Each message is searched and dropped. PocketCodes stores the code, the sender's name, the subject and the time, and forgets them after a day.
+- **Keeps only the code.** Each message is searched and dropped. AuthSkip stores the code, the sender's name, the subject and the time, and forgets them after a day.
 - **No server and nothing to pay.** Each account signs in straight to Google or Microsoft through your browser, against an OAuth client in your own free Google Cloud (or Microsoft Entra) project. iCloud and IMAP passwords stay in your operating system's own vault.
 - **Fill in one key.** The popup's Fill button or <kbd>Alt+Shift+F</kbd> puts the newest code into the page you're on. If you turn on "Offer codes on sign-in pages", a small chip next to a code box offers it for you.
 
 ## Install
 
-PocketCodes isn't in a store, so you load it from this folder.
+AuthSkip isn't in a store, so you load it from this folder.
 
-**Firefox (128 or newer).** Go to `about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on…** and pick `manifest.json`. Firefox removes a temporary add-on when it quits. To keep it, use Firefox Developer Edition or Nightly: set `xpinstall.signatures.required` to `false` in `about:config` and install `dist/pocketcodes-<version>-firefox.zip` from `about:addons` (gear menu → Install Add-on From File).
+**Firefox (128 or newer).** Go to `about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on…** and pick `manifest.json`. Firefox removes a temporary add-on when it quits. To keep it, use Firefox Developer Edition or Nightly: set `xpinstall.signatures.required` to `false` in `about:config` and install `dist/authskip-<version>-firefox.zip` from `about:addons` (gear menu → Install Add-on From File).
 
 **Chrome, Edge, Brave.** Go to `chrome://extensions` (`edge://extensions` in Edge), turn on **Developer mode**, choose **Load unpacked** and pick this folder. The manifest's `key` pins the extension ID to `kammpeiopjjhipmdggclkefddnlagnpk`, so the Google redirect URI and the IMAP helper keep working after a reload.
 
@@ -27,9 +27,9 @@ Google only lets an app read Gmail through an OAuth client, and a shared client 
 4. Under **Audience**, choose one:
    - **Publish the app.** It stays "unverified", which is fine for your own use. At sign-in Google shows "Google hasn't verified this app": choose **Advanced → Go to (your app)**. Sign-ins last until you remove them.
    - **Stay in testing** and add each Gmail address under **Test users**. Google ends test-mode sign-ins after 7 days, so you'd sign in again every week.
-5. Under **Clients**, create a client of type **Web application**. Add the redirect URI that PocketCodes' Settings → Google sign-in shows (there's a Copy button). With the IDs this repo pins, that is:
+5. Under **Clients**, create a client of type **Web application**. Add the redirect URI that AuthSkip's Settings → Google sign-in shows (there's a Copy button). With the IDs this repo pins, that is:
    - Chrome, Edge, Brave: `https://kammpeiopjjhipmdggclkefddnlagnpk.chromiumapp.org/`
-   - Firefox: `https://cc68423dab9883bd5660536e7968722975f7483b.extensions.allizom.org/`
+   - Firefox: `https://032bafb4d34bccf53bd00b0f41e127fa1e54f298.extensions.allizom.org/`
 
    Using both browsers? Add both URIs to the same client.
 6. Copy the **Client ID** and **Client secret** into Settings → Google sign-in, then choose **Add Gmail**. Repeat **Add Gmail** for every account.
@@ -38,7 +38,7 @@ Work and school accounts (such as a university's Google Workspace) may be blocke
 
 ## iCloud and other IMAP mail
 
-A browser extension can't open an IMAP connection, so a small helper does it: `host/pocketcodes_host.py`, one Python file that uses only the standard library. The browser starts it when PocketCodes needs it, and it answers no other extension.
+A browser extension can't open an IMAP connection, so a small helper does it: `host/authskip_host.py`, one Python file that uses only the standard library. The browser starts it when AuthSkip needs it, and it answers no other extension.
 
 1. Install Python 3.8 or newer. On Windows, use the python.org installer and tick **Add python.exe to PATH**. The Microsoft Store build can't register a helper; the installer tells you if that's what you have. Macs with the Xcode command-line tools already have `python3`.
 2. In this folder, run:
@@ -47,22 +47,22 @@ A browser extension can't open an IMAP connection, so a small helper does it: `h
    python host/install_host.py
    ```
 
-   (On a Mac, `python3 host/install_host.py`.) It copies the helper into PocketCodes' data folder and registers it with Firefox, Chrome, Edge, Brave and Chromium, for whichever of them you have. No administrator rights are needed. Restart the browser.
+   (On a Mac, `python3 host/install_host.py`.) It copies the helper into AuthSkip's data folder and registers it with Firefox, Chrome, Edge, Brave and Chromium, for whichever of them you have. No administrator rights are needed. Restart the browser.
 3. Settings → IMAP helper → **Check the helper** should show the version.
-4. Make an app-specific password. For iCloud: [account.apple.com](https://account.apple.com) → **Sign-In and Security** → **App-Specific Passwords** → **+**. Name it "PocketCodes" and copy the `xxxx-xxxx-xxxx-xxxx` password. Your Apple Account password won't work for IMAP. Yahoo, AOL, Fastmail and Zoho have the same kind of password in their security settings.
+4. Make an app-specific password. For iCloud: [account.apple.com](https://account.apple.com) → **Sign-In and Security** → **App-Specific Passwords** → **+**. Name it "AuthSkip" and copy the `xxxx-xxxx-xxxx-xxxx` password. Your Apple Account password won't work for IMAP. Yahoo, AOL, Fastmail and Zoho have the same kind of password in their security settings.
 5. Settings → **Add iCloud or other IMAP**: pick the provider, enter the address and the app-specific password, then **Add account**. The helper checks the login. For iCloud it tries the full address first, then the part before the @, since older Apple accounts sign in with that. If the login works, the helper keeps the password.
 
 Where the password goes:
 
 | | Kept in | Data folder |
 |---|---|---|
-| Windows | DPAPI, sealed to your Windows sign-in, in `vault.json` | `%APPDATA%\PocketCodes` |
-| macOS | your login Keychain, item "PocketCodes" | `~/Library/Application Support/PocketCodes` |
-| Linux | `vault.json`, readable only by you (0600); not encrypted | `~/.local/share/pocketcodes` |
+| Windows | DPAPI, sealed to your Windows sign-in, in `vault.json` | `%APPDATA%\AuthSkip` |
+| macOS | your login Keychain, item "AuthSkip" | `~/Library/Application Support/AuthSkip` |
+| Linux | `vault.json`, readable only by you (0600); not encrypted | `~/.local/share/authskip` |
 
 On Windows and macOS there is no plaintext fallback: if the vault can't be used, adding the account fails. The extension itself never stores the password. Errors (never passwords or mail) go to `helper.log` in the data folder.
 
-To update the helper after pulling a new version, run the installer again. `python host/install_host.py --uninstall` takes it out of every browser and keeps your saved logins. `--purge` deletes those logins as well. `--chrome-id <id>` also allows another Chrome extension ID, if you load PocketCodes under a different one.
+To update the helper after pulling a new version, run the installer again. `python host/install_host.py --uninstall` takes it out of every browser and keeps your saved logins. `--purge` deletes those logins as well. `--chrome-id <id>` also allows another Chrome extension ID, if you load AuthSkip under a different one.
 
 ## Outlook, Hotmail, Microsoft 365
 
@@ -86,7 +86,7 @@ This part is written to Microsoft's documentation and tested only against record
 
 ## Development
 
-No build step, no npm: the scripts are classic files on `globalThis.PC`. See `CLAUDE.md` for the invariants and layout.
+No build step, no npm: the scripts are classic files on `globalThis.AS`. See `CLAUDE.md` for the invariants and layout.
 
 ```
 node --test tests/core.test.js                      # code finding, providers, inbox

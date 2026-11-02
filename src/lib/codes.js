@@ -1,4 +1,4 @@
-/* PocketCodes: finding the code in a message. Pure functions on globalThis.PC.codes, no browser APIs, so the tests
+/* AuthSkip: finding the code in a message. Pure functions on globalThis.AS.codes, no browser APIs, so the tests
    (tests/core.test.js) run them in Node. The rules, in the order they apply:
 
    1. A message is only searched if some line mentions a code word (code, OTP, passcode, PIN, one-time password,
@@ -14,7 +14,7 @@
 
    Every rule has a case in tests/core.test.js, and so do the quiet cases (messages that must give nothing). */
 (function (g) {
-  const PC = (g.PC = g.PC || {});
+  const AS = (g.AS = g.AS || {});
 
   const NAMED = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", ndash: "-", mdash: "-", rsquo: "'", lsquo: "'", ldquo: '"', rdquo: '"', copy: "©" };
 
@@ -158,5 +158,5 @@
   /** The best code in { subject, text }, or null. */
   function find(msg) { return all(msg)[0] || null; }
 
-  PC.codes = { htmlToText, clean, all, find };
+  AS.codes = { htmlToText, clean, all, find };
 })(globalThis);

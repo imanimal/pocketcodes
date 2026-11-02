@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Draws PocketCodes' toolbar icons with the standard library only: icons/icon-{16,32,48,96,128}.png.
+"""Draws AuthSkip's toolbar icons with the standard library only: icons/icon-{16,32,48,96,128}.png.
 
 An ink rounded square with three digit slots, the last one holding an accent caret (a code being filled).
 Each size is drawn at 8x and averaged down, so edges are smooth without any imaging library.

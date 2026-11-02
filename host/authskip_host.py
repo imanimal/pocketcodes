@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""PocketCodes IMAP helper.
+"""AuthSkip IMAP helper.
 
 A browser extension can't open an IMAP connection, so the browser starts this script through native messaging
 and talks to it over stdin/stdout. It uses nothing but the Python standard library.
 
 What it does, and what it never does:
-  - It logs in to an IMAP server with the password you type once in PocketCodes' settings, and keeps that
+  - It logs in to an IMAP server with the password you type once in AuthSkip's settings, and keeps that
     password in the operating system's own vault: Windows DPAPI (bound to your Windows sign-in), the macOS
     Keychain, or on Linux a file only your user can read. The extension never stores it.
   - It opens INBOX read-only (EXAMINE) and reads messages with BODY.PEEK, so nothing is marked read, moved,
@@ -45,7 +45,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 VERSION = "0.1.0"
-SERVICE = "PocketCodes"
+SERVICE = "AuthSkip"
 PEEK_BYTES = 30000
 TEXT_CAP = 8000
 TIMEOUT = 20
@@ -74,17 +74,17 @@ def os_name():
 
 
 def data_dir():
-    """%APPDATA%\\PocketCodes, ~/Library/Application Support/PocketCodes or $XDG_DATA_HOME/pocketcodes.
-    POCKETCODES_DATA overrides it (the tests use that)."""
-    env = os.environ.get("POCKETCODES_DATA")
+    """%APPDATA%\\AuthSkip, ~/Library/Application Support/AuthSkip or $XDG_DATA_HOME/authskip.
+    AUTHSKIP_DATA overrides it (the tests use that)."""
+    env = os.environ.get("AUTHSKIP_DATA")
     if env:
         return env
     name = os_name()
     if name == "windows":
-        return os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~\\AppData\\Roaming"), "PocketCodes")
+        return os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~\\AppData\\Roaming"), "AuthSkip")
     if name == "macos":
-        return os.path.expanduser("~/Library/Application Support/PocketCodes")
-    return os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "pocketcodes")
+        return os.path.expanduser("~/Library/Application Support/AuthSkip")
+    return os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "authskip")
 
 
 def _ensure_dir():
@@ -178,7 +178,7 @@ class WindowsVault(FileVault):
     """DPAPI (CryptProtectData), so only this Windows user on this computer can unseal the blobs."""
 
     kind = "dpapi"
-    ENTROPY = b"PocketCodes IMAP helper"
+    ENTROPY = b"AuthSkip IMAP helper"
 
     def __init__(self):
         super().__init__()
@@ -228,7 +228,7 @@ class WindowsVault(FileVault):
 class MacVault:
     """The login Keychain, through /usr/bin/security. The password goes to `security -i` on stdin, never in
     argv where other processes could see it. It is stored hex-encoded so no quoting or non-ASCII can break the
-    command line; Keychain Access shows the item as "PocketCodes" with that hex as its password."""
+    command line; Keychain Access shows the item as "AuthSkip" with that hex as its password."""
 
     kind = "keychain"
     SECURITY = "/usr/bin/security"
@@ -255,7 +255,7 @@ class MacVault:
         try:
             return bytes.fromhex(r.stdout.decode("ascii").strip()).decode("utf-8")
         except ValueError:
-            raise Fail("The Keychain item for this account isn't one PocketCodes wrote. Remove and add the account again.", auth=True, code="vault")
+            raise Fail("The Keychain item for this account isn't one AuthSkip wrote. Remove and add the account again.", auth=True, code="vault")
 
     def delete(self, acct):
         a = self._account(acct)
@@ -316,7 +316,7 @@ def connect(host, port, plain=False):
     except socket.gaierror:
         raise Fail("Can't find the server %s. Check the name." % host, code="net")
     except ssl.SSLCertVerificationError:
-        raise Fail("The certificate of %s didn't check out, so PocketCodes didn't send the password." % host, code="tls")
+        raise Fail("The certificate of %s didn't check out, so AuthSkip didn't send the password." % host, code="tls")
     except (socket.timeout, TimeoutError):
         raise Fail("%s didn't answer in time." % host, code="net")
     except ConnectionRefusedError:

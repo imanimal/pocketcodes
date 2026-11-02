@@ -1,4 +1,4 @@
-/* PocketCodes: finding a page's code boxes and filling them. No messaging and no storage, so it can be injected on
+/* AuthSkip: finding a page's code boxes and filling them. No messaging and no storage, so it can be injected on
    its own (the popup's Fill key and the Alt+Shift+F command inject util.js and this file into the active tab, once the
    click or key press has given the extension that tab) or loaded with offer.js on pages you opted in to.
 
@@ -8,8 +8,8 @@
    split boxes many sites draw). Filling goes through the input's native setter and fires input and change events,
    so React, Vue and plain forms all see it. */
 (function (g) {
-  const PC = (g.PC = g.PC || {});
-  if (PC.fill) return;
+  const AS = (g.AS = g.AS || {});
+  if (AS.fill) return;
 
   const OTP = /\b(?:otp|totp|one time|verif\w*|passcode|security code|auth\w* code|2fa|mfa|two factor|sms code|login code|sign in code|confirm\w* code|access code|pin|code)\b/i;
   const NOT = /\b(?:zip|postal|post|country|area|promo|coupon|discount|gift|referral|invite|voucher|cvv|cvc|card|expir\w*|search|tracking|captcha|barcode|qr|phone|email|username|user)\b/i;
@@ -101,5 +101,5 @@
     return true;
   }
 
-  PC.fill = { find, fill, visible, isCodeBox, setVal };
+  AS.fill = { find, fill, visible, isCodeBox, setVal };
 })(globalThis);

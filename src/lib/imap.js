@@ -1,4 +1,4 @@
-/* PocketCodes: iCloud and any other IMAP mailbox, through the helper in host/. A browser extension can't open an IMAP
+/* AuthSkip: iCloud and any other IMAP mailbox, through the helper in host/. A browser extension can't open an IMAP
    connection, so the helper (a stdlib Python script the browser starts through native messaging, installed once with
    host/install_host.py) does it. It checks the login when you add an account, then keeps the password in the
    operating system's own vault: this extension never stores it, and the helper never answers anything but this
@@ -7,11 +7,11 @@
    The wire format is one JSON object per message. Requests: { id, op, ... }. Answers: { re: id, ok: true, ... } or
    { re: id, error, auth?, code? }. Ops: hello {} → { version, os, data }; add { acct, host, port, user, email,
    password } → { user }; remove { acct }; poll { acct, since, limit, skip } → { messages: [{ key, from, subject,
-   text, at }] }, keys "i:<acct>:<uidvalidity>:<uid>" (host/pocketcodes_host.py's header). One port stays open
+   text, at }] }, keys "i:<acct>:<uidvalidity>:<uid>" (host/authskip_host.py's header). One port stays open
    while the browser needs it, so the helper keeps its IMAP connections between checks. */
 (function (g) {
-  const PC = (g.PC = g.PC || {});
-  const api = PC.api;
+  const AS = (g.AS = g.AS || {});
+  const api = AS.api;
 
   /** Servers worth a preset. iCloud and Yahoo want an app-specific password, not the account's own. */
   const presets = {
@@ -36,7 +36,7 @@
 
   function connect() {
     if (port) return port;
-    const p = api.runtime.connectNative(PC.HOST);
+    const p = api.runtime.connectNative(AS.HOST);
     p.onMessage.addListener((m) => {
       const w = m && pending.get(m.re);
       if (!w) return;
@@ -81,5 +81,5 @@
       return (r.messages || []).filter((m) => !skip.has(m.key));
     },
   };
-  PC.imap = imap;
+  AS.imap = imap;
 })(globalThis);

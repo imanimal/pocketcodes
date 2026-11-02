@@ -1,4 +1,4 @@
-/* PocketCodes: the popup and the options page. The Standard look: system fonts, small radii, one hairline, no
+/* AuthSkip: the popup and the options page. The Standard look: system fonts, small radii, one hairline, no
    gradients or glow, one accent. Colors are tokens on :root; dark follows the system. */
 :root {
   --bg: #fbf9f3; --surface: #ffffff; --ink: #24221e; --quiet: #6b665c; --line: #d9d5ca; --hover: #f1eee6;

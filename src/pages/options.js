@@ -1,12 +1,12 @@
-/* PocketCodes: the settings page (opens in a tab). Reads storage; the background script does every account write, so
+/* AuthSkip: the settings page (opens in a tab). Reads storage; the background script does every account write, so
    adding, signing in again and removing are messages. The pages write only settings, google and microsoft. */
 (function (g) {
-  const PC = g.PC;
-  const api = PC.api;
-  const esc = PC.esc;
+  const AS = g.AS;
+  const api = AS.api;
+  const esc = AS.esc;
   const app = document.getElementById("app");
   const redirect = (() => { try { return api.identity.getRedirectURL(); } catch (e) { return ""; } })();
-  let S = { accounts: [], settings: PC.DEFAULTS, google: {}, microsoft: {}, st: {}, meta: {} };
+  let S = { accounts: [], settings: AS.DEFAULTS, google: {}, microsoft: {}, st: {}, meta: {} };
   let ui = { addImap: false, preset: "icloud", note: "", noteBad: false, helper: null, armed: null, working: null };
   const keepOpen = { imap: false };
 
@@ -14,29 +14,29 @@
     const r = await api.storage.local.get(["accounts", "settings", "google", "microsoft", "meta"]);
     const accounts = r.accounts || [];
     const st = await api.storage.local.get(accounts.map((a) => "st:" + a.id));
-    S = { accounts, settings: Object.assign({}, PC.DEFAULTS, r.settings || {}), google: r.google || {}, microsoft: r.microsoft || {}, st, meta: r.meta || {} };
+    S = { accounts, settings: Object.assign({}, AS.DEFAULTS, r.settings || {}), google: r.google || {}, microsoft: r.microsoft || {}, st, meta: r.meta || {} };
   }
 
   const stat = (a) => {
     const s = S.st["st:" + a.id];
     if (!s) return `<span class="quiet">Not checked yet</span>`;
-    return s.ok ? `<span class="quiet">Checked ${esc(PC.ago(s.at))}</span>` : `<span class="bad">${esc(s.error)}</span>`;
+    return s.ok ? `<span class="quiet">Checked ${esc(AS.ago(s.at))}</span>` : `<span class="bad">${esc(s.error)}</span>`;
   };
 
   function acctRow(a) {
     const s = S.st["st:" + a.id];
     const again = s && !s.ok && s.auth ? `<button data-act="reauth" data-id="${esc(a.id)}" class="go">Sign in again</button>` : "";
     const rm = ui.armed === a.id ? `<button data-act="remove" data-id="${esc(a.id)}" class="bad">Remove? Press again</button>` : `<button data-act="remove" data-id="${esc(a.id)}">Remove</button>`;
-    return `<div class="acct"><div class="who"><span><span class="tag">${esc(PC.kindLabel(a))}</span><b>${esc(a.email)}</b></span>${stat(a)}</div>
+    return `<div class="acct"><div class="who"><span><span class="tag">${esc(AS.kindLabel(a))}</span><b>${esc(a.email)}</b></span>${stat(a)}</div>
       <div class="row">${again}${rm}</div></div>`;
   }
 
   function imapForm() {
-    const p = PC.imap.presets[ui.preset];
+    const p = AS.imap.presets[ui.preset];
     const custom = ui.preset === "custom";
     return `<form class="box" data-form="imap" autocomplete="off">
       <div class="grid2">
-        <label>Provider<select name="preset">${Object.entries(PC.imap.presets).map(([k, v]) => `<option value="${k}" ${k === ui.preset ? "selected" : ""}>${esc(v.label)}</option>`).join("")}</select></label>
+        <label>Provider<select name="preset">${Object.entries(AS.imap.presets).map(([k, v]) => `<option value="${k}" ${k === ui.preset ? "selected" : ""}>${esc(v.label)}</option>`).join("")}</select></label>
         <label>Email address<input type="email" name="email" required autocomplete="off" placeholder="you@icloud.com"></label>
       </div>
       <label>Password<input type="password" name="password" required autocomplete="off" placeholder="App-specific password"></label>
@@ -53,7 +53,7 @@
     const g1 = S.google, m1 = S.microsoft;
     const helper = ui.helper;
     const cmd = "python host/install_host.py";
-    PC.mount(app, `
+    AS.mount(app, `
       <section id="welcome">
         <h2>Accounts</h2>
         ${S.accounts.length ? S.accounts.map(acctRow).join("") : `<p class="quiet">No accounts yet. Add as many as you like; each one is checked on its own.</p>`}
@@ -92,7 +92,7 @@
       <section id="helper">
         <h2>IMAP helper</h2>
         <p class="quiet">iCloud and other IMAP mailboxes need a small helper program, because a browser extension can't open an IMAP connection. It is one Python file with no dependencies (host/), and it only answers this extension.</p>
-        <p>Install it once from the PocketCodes folder, then restart the browser:</p>
+        <p>Install it once from the AuthSkip folder, then restart the browser:</p>
         <div class="copy"><input type="text" readonly value="${esc(cmd)}" aria-label="Command"><button data-act="copyCmd">Copy</button></div>
         <div class="row"><button data-act="helper">Check the helper</button>
           <span class="status ${helper && helper.ok ? "good" : "bad"}">${helper ? esc(helper.text) : ""}</span></div>
@@ -117,38 +117,38 @@
 
   async function setPath(path, value) {
     const [root, key] = path.split(".");
-    if (root === "settings") { await PC.store.setSettings({ [key]: value }); await PC.send({ type: "settings" }).catch(() => {}); }
-    else { const cur = await PC.store.get(root, {}); cur[key] = value; await PC.store.set(root, cur); }
+    if (root === "settings") { await AS.store.setSettings({ [key]: value }); await AS.send({ type: "settings" }).catch(() => {}); }
+    else { const cur = await AS.store.get(root, {}); cur[key] = value; await AS.store.set(root, cur); }
   }
 
   async function act(el) {
     const a = el.dataset.act;
     if (a === "addOAuth") {
       ui.working = el.dataset.kind; note("");
-      const r = await PC.send({ type: "addOAuth", kind: el.dataset.kind });
+      const r = await AS.send({ type: "addOAuth", kind: el.dataset.kind });
       ui.working = null;
       note(r && r.error ? r.error : `Added ${r.account.email}.`, r && r.error);
     } else if (a === "reauth") {
       const acct = S.accounts.find((x) => x.id === el.dataset.id);
       ui.working = acct.kind;
-      const r = await PC.send({ type: "addOAuth", kind: acct.kind, hint: acct.email });
+      const r = await AS.send({ type: "addOAuth", kind: acct.kind, hint: acct.email });
       ui.working = null;
       note(r && r.error ? r.error : `Signed ${acct.email} in again.`, r && r.error);
     } else if (a === "remove") {
       if (ui.armed !== el.dataset.id) { ui.armed = el.dataset.id; draw(); return; }
       ui.armed = null;
-      await PC.send({ type: "remove", id: el.dataset.id });
+      await AS.send({ type: "remove", id: el.dataset.id });
       note("Removed. Its sign-in and stored codes are gone.");
     } else if (a === "showImap") { ui.addImap = true; draw(); }
     else if (a === "cancelImap") { ui.addImap = false; draw(); }
     else if (a === "copyRedirect") { await navigator.clipboard.writeText(redirect); note("Copied the redirect URI."); }
-    else if (a === "copyCmd") { await navigator.clipboard.writeText("python host/install_host.py"); note("Copied. Run it in the PocketCodes folder."); }
+    else if (a === "copyCmd") { await navigator.clipboard.writeText("python host/install_host.py"); note("Copied. Run it in the AuthSkip folder."); }
     else if (a === "helper") {
       ui.helper = { ok: false, text: "Checking…" }; draw();
-      const r = await PC.send({ type: "helper" });
+      const r = await AS.send({ type: "helper" });
       ui.helper = r && r.ok ? { ok: true, text: `Installed: version ${r.helper.version} on ${r.helper.os}.` } : { ok: false, text: (r && r.error) || "No answer." };
       draw();
-    } else if (a === "clear") { await PC.send({ type: "clear" }); note("Cleared."); }
+    } else if (a === "clear") { await AS.send({ type: "clear" }); note("Cleared."); }
   }
 
   async function togglePage(box) {
@@ -156,13 +156,13 @@
       // the permission prompt needs this click, so ask before anything else is awaited
       const ok = await api.permissions.request({ origins: ["<all_urls>"] });
       if (!ok) { box.checked = false; note("Without that permission the chip can't appear.", true); return; }
-      const r = await PC.send({ type: "page", on: true });
+      const r = await AS.send({ type: "page", on: true });
       if (r && r.error) { box.checked = false; note(r.error, true); return; }
-      await PC.store.setSettings({ page: true });
+      await AS.store.setSettings({ page: true });
     } else {
-      await PC.send({ type: "page", on: false });
+      await AS.send({ type: "page", on: false });
       await api.permissions.remove({ origins: ["<all_urls>"] }).catch(() => {});
-      await PC.store.setSettings({ page: false });
+      await AS.store.setSettings({ page: false });
     }
     await load(); draw();
   }
@@ -177,7 +177,7 @@
     if (t.name === "preset" && t.form && t.form.dataset.form === "imap") { ui.preset = t.value; draw(); return; }
     if (t.dataset.set) {
       const v = t.type === "checkbox" ? t.checked : t.dataset.num ? Number(t.value) : t.value.trim();
-      setPath(t.dataset.set, v).then(() => PC.send({ type: "settings" }).catch(() => {}));
+      setPath(t.dataset.set, v).then(() => AS.send({ type: "settings" }).catch(() => {}));
     }
   });
   app.addEventListener("submit", async (e) => {
@@ -186,7 +186,7 @@
     if (f.dataset.form !== "imap") return;
     const d = Object.fromEntries(new FormData(f));
     ui.working = "imap"; note("");
-    const r = await PC.send(Object.assign({ type: "addImap" }, d));
+    const r = await AS.send(Object.assign({ type: "addImap" }, d));
     ui.working = null;
     if (r && r.error) { ui.addImap = true; note(r.error + (r.code === "no-host" ? "" : ""), true); return; }
     ui.addImap = false;

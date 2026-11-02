@@ -21,7 +21,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "host"))
 import install_host  # noqa: E402
-import pocketcodes_host as host  # noqa: E402
+import authskip_host as host  # noqa: E402
 
 NOW = int(time.time() * 1000)
 MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
@@ -132,7 +132,7 @@ class Handler(socketserver.StreamRequestHandler):
 class HelperCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        os.environ["POCKETCODES_DATA"] = self.tmp.name
+        os.environ["AUTHSKIP_DATA"] = self.tmp.name
         host._vault = None
         host._accts.clear()
         self.servers = []
@@ -143,7 +143,7 @@ class HelperCase(unittest.TestCase):
         host._accts.clear()
         for s in self.servers:
             s.stop()
-        os.environ.pop("POCKETCODES_DATA", None)
+        os.environ.pop("AUTHSKIP_DATA", None)
         self.tmp.cleanup()
 
     def server(self, logins, mail):
@@ -306,9 +306,9 @@ class TestParts(HelperCase):
             host.read_message(io.BytesIO(struct.pack("<I", 5 * 1024 * 1024)))
 
     def test_the_helper_runs_as_the_browser_starts_it(self):
-        env = dict(os.environ, POCKETCODES_DATA=self.tmp.name)
+        env = dict(os.environ, AUTHSKIP_DATA=self.tmp.name)
         msg = json.dumps({"id": 1, "op": "hello"}).encode("utf-8")
-        p = subprocess.run([sys.executable, "-I", "-B", os.path.join(ROOT, "host", "pocketcodes_host.py"), "chrome-extension://x/"],
+        p = subprocess.run([sys.executable, "-I", "-B", os.path.join(ROOT, "host", "authskip_host.py"), "chrome-extension://x/"],
                            input=struct.pack("<I", len(msg)) + msg, capture_output=True, env=env, timeout=30)
         self.assertEqual(p.returncode, 0, p.stderr)
         n = struct.unpack("<I", p.stdout[:4])[0]
@@ -368,43 +368,43 @@ class TestInstaller(unittest.TestCase):
 
     def test_manifests(self):
         c = install_host.chrome_manifest("/x/run.sh", ["kammpeiopjjhipmdggclkefddnlagnpk", "abcdefghijklmnopabcdefghijklmnop"])
-        self.assertEqual(c["name"], "io.github.imanimal.pocketcodes")
+        self.assertEqual(c["name"], "io.github.imanimal.authskip")
         self.assertEqual(c["type"], "stdio")
         self.assertEqual(c["allowed_origins"], ["chrome-extension://kammpeiopjjhipmdggclkefddnlagnpk/", "chrome-extension://abcdefghijklmnopabcdefghijklmnop/"])
         self.assertNotIn("allowed_extensions", c)
         f = install_host.firefox_manifest("/x/run.sh")
-        self.assertEqual(f["allowed_extensions"], ["codes@imanimal.github.io"])
+        self.assertEqual(f["allowed_extensions"], ["authskip@imanimal.github.io"])
         self.assertNotIn("allowed_origins", f)
 
     def test_name_matches_the_extension(self):
         with open(os.path.join(ROOT, "src", "lib", "util.js"), encoding="utf-8") as fh:
-            self.assertIn('PC.HOST = "%s"' % install_host.NAME, fh.read())
+            self.assertIn('AS.HOST = "%s"' % install_host.NAME, fh.read())
         with open(os.path.join(ROOT, "manifest.json"), encoding="utf-8") as fh:
             self.assertEqual(json.load(fh)["browser_specific_settings"]["gecko"]["id"], install_host.FIREFOX_ID)
 
     def test_targets(self):
         win = install_host.targets("windows", "C:\\Users\\sam")
-        self.assertIn(("Chrome", "chrome", "Software\\Google\\Chrome\\NativeMessagingHosts\\io.github.imanimal.pocketcodes", "Software\\Google\\Chrome"), win)
-        self.assertIn(("Firefox", "firefox", "Software\\Mozilla\\NativeMessagingHosts\\io.github.imanimal.pocketcodes", "Software\\Mozilla"), win)
+        self.assertIn(("Chrome", "chrome", "Software\\Google\\Chrome\\NativeMessagingHosts\\io.github.imanimal.authskip", "Software\\Google\\Chrome"), win)
+        self.assertIn(("Firefox", "firefox", "Software\\Mozilla\\NativeMessagingHosts\\io.github.imanimal.authskip", "Software\\Mozilla"), win)
         mac = dict((b, w) for b, _, w, _ in install_host.targets("macos", "/Users/sam"))
-        self.assertEqual(mac["Chrome"], "/Users/sam/Library/Application Support/Google/Chrome/NativeMessagingHosts/io.github.imanimal.pocketcodes.json")
-        self.assertEqual(mac["Firefox"], "/Users/sam/Library/Application Support/Mozilla/NativeMessagingHosts/io.github.imanimal.pocketcodes.json")
+        self.assertEqual(mac["Chrome"], "/Users/sam/Library/Application Support/Google/Chrome/NativeMessagingHosts/io.github.imanimal.authskip.json")
+        self.assertEqual(mac["Firefox"], "/Users/sam/Library/Application Support/Mozilla/NativeMessagingHosts/io.github.imanimal.authskip.json")
         lin = dict((b, w) for b, _, w, _ in install_host.targets("linux", "/home/sam"))
-        self.assertEqual(lin["Chrome"], "/home/sam/.config/google-chrome/NativeMessagingHosts/io.github.imanimal.pocketcodes.json")
-        self.assertEqual(lin["Firefox"], "/home/sam/.mozilla/native-messaging-hosts/io.github.imanimal.pocketcodes.json")
+        self.assertEqual(lin["Chrome"], "/home/sam/.config/google-chrome/NativeMessagingHosts/io.github.imanimal.authskip.json")
+        self.assertEqual(lin["Firefox"], "/home/sam/.mozilla/native-messaging-hosts/io.github.imanimal.authskip.json")
 
     def test_launchers(self):
-        self.assertEqual(install_host.launcher_text("windows", "C:\\Python313\\python.exe", "C:\\d\\pocketcodes_host.py"),
-                         '@echo off\r\n"C:\\Python313\\python.exe" -I -B "C:\\d\\pocketcodes_host.py" %*\r\n')
-        self.assertEqual(install_host.launcher_text("macos", "/usr/bin/python3", "/Users/sam/Library/Application Support/PocketCodes/host/pocketcodes_host.py"),
-                         "#!/bin/sh\nexec /usr/bin/python3 -I -B '/Users/sam/Library/Application Support/PocketCodes/host/pocketcodes_host.py' \"$@\"\n")
+        self.assertEqual(install_host.launcher_text("windows", "C:\\Python313\\python.exe", "C:\\d\\authskip_host.py"),
+                         '@echo off\r\n"C:\\Python313\\python.exe" -I -B "C:\\d\\authskip_host.py" %*\r\n')
+        self.assertEqual(install_host.launcher_text("macos", "/usr/bin/python3", "/Users/sam/Library/Application Support/AuthSkip/host/authskip_host.py"),
+                         "#!/bin/sh\nexec /usr/bin/python3 -I -B '/Users/sam/Library/Application Support/AuthSkip/host/authskip_host.py' \"$@\"\n")
 
     def test_install_and_uninstall_here(self):
         if host.os_name() != "linux":
             self.skipTest("writes into this user's browser folders")
         with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as data:
             old = dict(os.environ)
-            os.environ.update(HOME=home, POCKETCODES_DATA=data)
+            os.environ.update(HOME=home, AUTHSKIP_DATA=data)
             try:
                 os.makedirs(os.path.join(home, ".config", "chromium"))
                 with open(os.devnull, "w") as quiet:
@@ -418,7 +418,7 @@ class TestInstaller(unittest.TestCase):
                 with open(found["Chromium"], encoding="utf-8") as fh:
                     m = json.load(fh)
                 self.assertTrue(os.access(m["path"], os.X_OK))
-                self.assertTrue(os.path.exists(os.path.join(data, "host", "pocketcodes_host.py")))
+                self.assertTrue(os.path.exists(os.path.join(data, "host", "authskip_host.py")))
                 with open(os.devnull, "w") as quiet:
                     out, sys.stdout = sys.stdout, quiet
                     try:

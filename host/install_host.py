@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Installs the PocketCodes IMAP helper for Firefox and the Chrome family (Chrome, Edge, Brave, Chromium).
+"""Installs the AuthSkip IMAP helper for Firefox and the Chrome family (Chrome, Edge, Brave, Chromium).
 
     python host/install_host.py               install, or update after pulling a new version
     python host/install_host.py --uninstall   take it out of every browser (your accounts' passwords stay)
     python host/install_host.py --purge       take it out and delete its accounts and passwords too
     python host/install_host.py --chrome-id ID   also allow a Chrome extension ID other than the pinned one
 
-It copies pocketcodes_host.py into PocketCodes' data folder (so moving or deleting this folder doesn't break it),
+It copies authskip_host.py into AuthSkip's data folder (so moving or deleting this folder doesn't break it),
 writes a small launcher that runs it with this Python, and tells each browser where it is: a registry key under
 HKEY_CURRENT_USER on Windows, a manifest file in each browser's NativeMessagingHosts folder on macOS and Linux.
 Nothing needs administrator rights. Restart the browser afterwards.
@@ -23,11 +23,11 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import pocketcodes_host as host  # noqa: E402
+import authskip_host as host  # noqa: E402
 
-NAME = "io.github.imanimal.pocketcodes"
-DESCRIPTION = "PocketCodes IMAP helper"
-FIREFOX_ID = "codes@imanimal.github.io"
+NAME = "io.github.imanimal.authskip"
+DESCRIPTION = "AuthSkip IMAP helper"
+FIREFOX_ID = "authskip@imanimal.github.io"
 MANIFEST = os.path.join(os.path.dirname(HERE), "manifest.json")
 
 
@@ -140,9 +140,9 @@ def install(extra_ids):
     ids = [pinned_chrome_id()] + [i for i in extra_ids if i]
     d = install_dir()
     os.makedirs(d, exist_ok=True)
-    script = os.path.join(d, "pocketcodes_host.py")
-    shutil.copyfile(os.path.join(HERE, "pocketcodes_host.py"), script)
-    run = os.path.join(d, "pocketcodes_host.bat" if osn == "windows" else "pocketcodes_host.sh")
+    script = os.path.join(d, "authskip_host.py")
+    shutil.copyfile(os.path.join(HERE, "authskip_host.py"), script)
+    run = os.path.join(d, "authskip_host.bat" if osn == "windows" else "authskip_host.sh")
     _write(run, launcher_text(osn, sys.executable, script), None if osn == "windows" else 0o755)
 
     manifests = {"chrome": chrome_manifest(run, ids), "firefox": firefox_manifest(run)}
@@ -160,7 +160,7 @@ def install(extra_ids):
                 _write(path, json.dumps(manifests[family], indent=2) + "\n", 0o644)
                 done.append(browser)
 
-    print("PocketCodes helper %s installed for %s." % (host.VERSION, ", ".join(done)))
+    print("AuthSkip helper %s installed for %s." % (host.VERSION, ", ".join(done)))
     print("  helper:  %s" % script)
     print("  python:  %s" % sys.executable)
     print("  Chrome extension ID allowed: %s" % ", ".join(ids))
@@ -194,7 +194,7 @@ def uninstall(purge):
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(description="Install the PocketCodes IMAP helper for Firefox and Chrome-family browsers.")
+    p = argparse.ArgumentParser(description="Install the AuthSkip IMAP helper for Firefox and Chrome-family browsers.")
     p.add_argument("--uninstall", action="store_true", help="take the helper out of every browser")
     p.add_argument("--purge", action="store_true", help="also delete the helper's accounts and saved passwords")
     p.add_argument("--chrome-id", action="append", default=[], metavar="ID", help="also allow this Chrome extension ID (repeatable)")

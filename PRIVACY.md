@@ -1,8 +1,8 @@
-# PocketCodes privacy policy
+# AuthSkip privacy policy
 
 Last updated November 2, 2026.
 
-PocketCodes is a browser extension that finds one-time sign-in codes in the mailboxes you add and shows them in your browser. It has no server. Nothing it reads goes to the author or to anyone else.
+AuthSkip is a browser extension that finds one-time sign-in codes in the mailboxes you add and shows them in your browser. It has no server. Nothing it reads goes to the author or to anyone else.
 
 ## What it reads
 
@@ -10,7 +10,7 @@ PocketCodes is a browser extension that finds one-time sign-in codes in the mail
 - **Outlook, Hotmail and Microsoft 365**, through Microsoft Graph with the read-only scope `Mail.Read`. Same half hour.
 - **iCloud and other IMAP mailboxes**, through the helper program in `host/` on your own computer. It opens the inbox read-only (`EXAMINE`) and reads the first 30 KB of recent messages with `BODY.PEEK`, so nothing is marked read.
 
-PocketCodes never sends, deletes, moves, flags or marks mail as read, and it asks for no permission that would let it.
+AuthSkip never sends, deletes, moves, flags or marks mail as read, and it asks for no permission that would let it.
 
 ## What it keeps, and where
 
