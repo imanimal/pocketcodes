@@ -44,8 +44,10 @@
       if (m.error) w.rej(Object.assign(new Error(m.error), { auth: !!m.auth, code: m.code }));
       else w.res(m);
     });
-    p.onDisconnect.addListener(() => {
-      const err = helperError((api.runtime.lastError && api.runtime.lastError.message) || "The helper closed.");
+    p.onDisconnect.addListener((gone) => {
+      // Firefox says why on the port (a missing helper included), Chrome on runtime.lastError
+      const why = (gone && gone.error && gone.error.message) || (api.runtime.lastError && api.runtime.lastError.message);
+      const err = helperError(why || "The helper closed.");
       port = null;
       for (const w of pending.values()) { clearTimeout(w.t); w.rej(err); }
       pending.clear();
