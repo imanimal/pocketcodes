@@ -1,8 +1,8 @@
 /* PocketCodes: the background script. Firefox runs it as an event page after the manifest's script list, Chrome as the
    service worker, which has to load the same libraries itself (importScripts, which Firefox's page doesn't have).
-   It owns every write to the accounts, tokens, codes and statuses; the popup, the options page and the sign-in
-   pages' script only read storage and send it messages (below). A check runs on the alarm (settings.every minutes),
-   at startup, on "Check now", and every few seconds while a popup is open or a page is waiting for a code. */
+   It owns every write to the accounts, tokens, codes and statuses; the popup, the options page and the sign-in page
+   script (on every page, from the manifest) only read storage and send it messages (below). A check runs on the alarm
+   (settings.every minutes), at startup, on "Check now", and every few seconds while a popup is open or a page is waiting for a code. */
 if (typeof importScripts === "function") {
   importScripts("lib/util.js", "lib/client.js", "lib/codes.js", "lib/google.js", "lib/microsoft.js", "lib/imap.js", "lib/inbox.js");
 }
@@ -10,7 +10,7 @@ if (typeof importScripts === "function") {
   const PC = g.PC;
   const api = PC.api;
   const ALARM = "pocketcodes-poll";
-  const PAGE_SCRIPT = "pocketcodes-offer";
+  const OLD_PAGE_SCRIPT = "pocketcodes-offer";
 
   async function schedule() {
     const s = await PC.store.settings();
@@ -19,17 +19,23 @@ if (typeof importScripts === "function") {
     if (!cur || cur.periodInMinutes !== every) await api.alarms.create(ALARM, { delayInMinutes: 0.2, periodInMinutes: every });
   }
 
-  /** Puts the offer script on every page (or takes it off). Needs the all-sites permission, asked on the options page. */
-  async function registerPage(on) {
-    const has = (await api.scripting.getRegisteredContentScripts({ ids: [PAGE_SCRIPT] })).length > 0;
-    if (!on) { if (has) await api.scripting.unregisterContentScripts({ ids: [PAGE_SCRIPT] }); return { ok: true }; }
-    if (!(await api.permissions.contains({ origins: ["<all_urls>"] }))) return { error: "PocketCodes doesn't have permission to run on all sites." };
-    if (!has) {
-      await api.scripting.registerContentScripts([{
-        id: PAGE_SCRIPT, matches: ["<all_urls>"], js: ["src/lib/util.js", "src/content/fill.js", "src/content/offer.js"],
-        runAt: "document_idle", allFrames: true, persistAcrossSessions: true,
-      }]);
-    }
+  /** Takes the sign-in page script that 0.2.0 registered by hand off again: the manifest runs it on every page now. */
+  async function dropOldScript() {
+    if (!api.scripting.getRegisteredContentScripts) return;
+    const old = await api.scripting.getRegisteredContentScripts({ ids: [OLD_PAGE_SCRIPT] });
+    if (old.length) await api.scripting.unregisterContentScripts({ ids: [OLD_PAGE_SCRIPT] });
+  }
+
+  /** Settings from before 0.2.1 kept the chip off until you turned it on; it's on for everyone now (and has a switch). */
+  async function migrate() {
+    const s = await PC.store.get("settings");
+    if (s && (Number(s.v) || 1) < 2) await PC.store.setSettings({ v: 2, page: true });
+  }
+
+  /** The chip on sign-in pages, on or off. On needs the all-sites access the manifest asks for at install. */
+  async function setPage(on) {
+    if (on && !(await api.permissions.contains({ origins: ["<all_urls>"] }))) return { error: "PocketCodes doesn't have access to all sites.", code: "no-access" };
+    await PC.store.setSettings({ page: on });
     return { ok: true };
   }
 
@@ -63,7 +69,7 @@ if (typeof importScripts === "function") {
     seen: () => PC.inbox.mark("seen", "all").then(() => ({ ok: true })),
     used: (m) => PC.inbox.mark("used", [m.id]).then(() => ({ ok: true })),
     fill: (m) => fillTab(m.tabId, m.id),
-    page: (m) => registerPage(!!m.on),
+    page: (m) => setPage(!!m.on),
     helper: () => PC.imap.status().then((r) => ({ ok: true, helper: r })),
     clear: () => PC.mutex("codes", () => PC.store.set("codes", [])).then(() => PC.inbox.badge()).then(() => ({ ok: true })),
     settings: () => schedule().then(() => PC.inbox.badge()).then(() => ({ ok: true })),
@@ -82,13 +88,10 @@ if (typeof importScripts === "function") {
   api.runtime.onStartup.addListener(() => { schedule().then(() => PC.inbox.poll({ force: true })).catch(() => {}); });
   api.runtime.onInstalled.addListener(({ reason }) => {
     schedule().catch(() => {});
+    migrate().catch(() => {});
+    dropOldScript().catch(() => {});
     if (reason === "install") api.tabs.create({ url: api.runtime.getURL("src/pages/options.html#welcome") });
   });
-  if (api.permissions && api.permissions.onRemoved) {
-    api.permissions.onRemoved.addListener((p) => {
-      if ((p.origins || []).includes("<all_urls>")) PC.store.setSettings({ page: false }).then(() => registerPage(false)).catch(() => {});
-    });
-  }
   api.notifications.onClicked.addListener((id) => api.notifications.clear(id));
 
   // A background that wakes for any reason (a message, the alarm) makes sure the alarm and badge are right.

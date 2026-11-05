@@ -1,10 +1,11 @@
 // PocketCodes end to end in a real Firefox (Node 22+, no packages). It starts a headless Firefox with a throwaway
-// profile, installs this folder as a temporary add-on over WebDriver BiDi, turns on "Offer codes on sign-in pages"
-// the way the settings page does (permission request, then the background's "page" message), puts a fresh code in
-// storage, and checks that real pages get it:
+// profile, installs this folder as a temporary add-on over WebDriver BiDi, checks the sign-in page chip is on from
+// install (site access granted, nothing to turn on), adds a stand-in inbox, puts fresh codes in storage, and checks
+// that real pages get them:
 //   - tests/fixtures/run.html passes in Gecko (the detection and chip cases)
-//   - the registered content script auto-fills a code box, and fills one that appears later
+//   - the manifest's content script auto-fills a code box, and fills one that appears later
 //   - in "ask" mode the chip appears and the box stays empty
+//   - with no code yet the chip pops up waiting, and shows the code when it lands
 //   - a sign-in page without a code box is left alone
 //   - the Fill command path (background fillTab through scripting.executeScript) fills the active tab
 //   - the IMAP helper answers, if it's installed
@@ -117,21 +118,15 @@ try {
     if (c) opts = c.context; else await wait(250);
   }
   if (!opts) throw new Error("the settings page didn't open on install");
-  // a real click on step 2's "Turn on" (Firefox grants permissions only from user input)
-  await run(opts, () => { document.querySelector("button[data-act=pageOn]").scrollIntoView({ block: "center" }); return "1"; });
-  const { nodes } = await bidi("browsingContext.locateNodes", { context: opts, locator: { type: "css", value: "button[data-act=pageOn]" } });
-  await bidi("input.performActions", { context: opts, actions: [{ type: "pointer", id: "mouse", actions: [
-    { type: "pointerMove", x: 0, y: 0, origin: { type: "element", element: { sharedId: nodes[0].sharedId } } },
-    { type: "pointerDown", button: 0 }, { type: "pointerUp", button: 0 }] }] });
-  await until(opts, async () => ((await globalThis.browser.storage.local.get("settings")).settings || {}).page === true);
-  const setup = await run(opts, async (code) => {
+  const setup = await run(opts, async () => {
     const api = globalThis.browser;
-    const ok = await api.permissions.contains({ origins: ["<all_urls>"] });
-    const r = { ok: (await api.scripting.getRegisteredContentScripts()).some((s) => s.id === "pocketcodes-offer") };
-    await api.storage.local.set({ settings: Object.assign({}, globalThis.PC.DEFAULTS, { page: true, fill: "auto", notify: false }), codes: [] });
-    return JSON.stringify({ ok, r });
+    const access = await api.permissions.contains({ origins: ["<all_urls>"] });
+    const page = (await globalThis.PC.store.settings()).page;
+    const registered = (await api.scripting.getRegisteredContentScripts()).length;
+    await api.storage.local.set({ settings: Object.assign({}, globalThis.PC.DEFAULTS, { fill: "auto", notify: false }), codes: [] });
+    return JSON.stringify({ access, page, registered });
   });
-  check(setup.ok && setup.r && setup.r.ok, "settings page turns on sign-in page offers", JSON.stringify(setup));
+  check(setup.access && setup.page === true && setup.registered === 0, "the sign-in page chip is on from install, nothing to turn on", JSON.stringify(setup));
 
   // the fixtures in Gecko
   const fx = await tab(`${SITE}/tests/fixtures/run.html`);
@@ -139,6 +134,9 @@ try {
   const fr = await run(fx, () => JSON.stringify(window.RESULT || { fail: -1, rows: [] }));
   check(fr.fail === 0, `fixture page in Firefox: ${fr.pass} passed`, fr.rows.filter((r) => !r.ok).map((r) => r.name + ": " + r.detail).join("; "));
   await bidi("browsingContext.close", { context: fx }); // its frames have code boxes of their own
+  // (no inbox until now, so this add-on's own chip stayed out of the fixture frames.) A stand-in Gmail inbox, whose
+  // checks fail quietly for want of a token, gives the chip something to wait on.
+  await run(opts, async () => { await globalThis.browser.storage.local.set({ accounts: [{ id: "google:you@example.com", kind: "google", email: "you@example.com" }] }); return "1"; });
 
   // the real registered content script. A code box in a background tab must leave the code alone...
   const bg = await tab(`${SITE}/tests/fixtures/page-otp.html?bg`, true);
@@ -179,11 +177,17 @@ try {
   const value = await run(p5, () => JSON.stringify(document.getElementById("otp").value));
   check(filled.ok && value === "246810", "Fill puts the code into the tab", JSON.stringify(filled) + " value=" + value);
 
+  const p6 = await tab(`${SITE}/tests/fixtures/page-otp.html?wait`);
+  const waiting = await until(p6, () => (document.querySelector("pocketcodes-chip") || { dataset: {} }).dataset.state === "waiting");
+  await give(opts, "135790");
+  const landed = await until(p6, () => (document.querySelector("pocketcodes-chip") || { dataset: {} }).dataset.state === "code");
+  check(waiting && landed, "with no code yet the chip pops up waiting, then shows the code when it lands", `waiting=${waiting} landed=${landed}`);
+
   const helper = await run(opts, async () => JSON.stringify(await globalThis.browser.runtime.sendMessage({ type: "helper" })));
   if (!helper.ok && helper.code === "no-host") console.log("skip  IMAP helper (not installed here)");
   else check(helper.ok, helper.ok ? `IMAP helper answers (version ${helper.helper.version})` : "IMAP helper answers", helper.error);
 
-  // SHOTS=<folder>: a screenshot of the chip on a sign-in page
+  // SHOTS=<folder>: screenshots of the chip on a sign-in page, waiting and with a code
   if (process.env.SHOTS) {
     const { mkdirSync } = await import("node:fs");
     mkdirSync(process.env.SHOTS, { recursive: true });
@@ -195,6 +199,10 @@ try {
       const { data } = await bidi("browsingContext.captureScreenshot", { context, origin: "document" });
       writeFileSync(join(process.env.SHOTS, `${name}-${tag}.png`), Buffer.from(data, "base64"));
     };
+    await run(opts, async () => { await globalThis.browser.storage.local.set({ codes: [] }); return "1"; });
+    const wt = await tab(`${SITE}/tests/fixtures/page-otp.html?shotwait`);
+    await until(wt, () => (document.querySelector("pocketcodes-chip") || { dataset: {} }).dataset.state === "waiting");
+    await shot(wt, "chip-waiting", 520, 220);
     await give(opts, "482913", { fill: "ask" });
     const ch = await tab(`${SITE}/tests/fixtures/page-otp.html?shot`);
     await until(ch, () => !!document.querySelector("pocketcodes-chip"));

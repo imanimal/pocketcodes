@@ -6,16 +6,17 @@
 <title>PocketCodes preview</title>
 <!-- The real popup or settings page (src/pages) with made-up accounts and codes, for looking at the design in any
      browser: serve the repo root, then open tests/fixtures/preview.html?page=popup (or page=options, and &empty for
-     the first-run state, &builtin for a build with the built-in Google client). The extension API is a stand-in. -->
+     the first-run state, &builtin for a build with the built-in Google client, &off with the sign-in page chip turned
+     off, &noaccess with its site access taken away). The extension API is a stand-in. -->
 <link rel="stylesheet" href="../../src/pages/page.css">
 <script>
   const q = new URLSearchParams(location.search);
   const page = q.get("page") || "popup", now = Date.now();
   const c = (n, code, from, email, ago, used) => ({ id: "g:s" + n, acct: "x", email, kind: "google", code, from, subject: "Your sign-in code", at: now - ago, found: now, seen: true, used: !!used });
-  const store = q.has("empty") ? { settings: { page: false } } : {
+  const store = q.has("empty") ? { settings: { page: !q.has("off") } } : {
     accounts: [{ id: "google:you@example.com", kind: "google", email: "you@example.com" }, { id: "imap:you@icloud.example", kind: "imap", label: "iCloud", email: "you@icloud.example" }],
     "st:google:you@example.com": { ok: true, at: now - 30e3 }, "st:imap:you@icloud.example": { ok: true, at: now - 50e3 },
-    meta: { lastPoll: now - 20e3 }, settings: { page: q.has("on") },
+    meta: { lastPoll: now - 20e3 }, settings: { page: !q.has("off") },
     codes: [c(1, "482913", "GitHub", "you@example.com", 40e3), c(2, "73520118", "Example Bank", "you@icloud.example", 4 * 60e3), c(3, "246810", "Discord", "you@example.com", 50 * 60e3, true)],
   };
   window.browser = {
@@ -26,7 +27,7 @@
     runtime: { sendMessage: async (m) => (m.type === "helper" ? { ok: true, helper: { version: "0.1.0", os: "Windows" } } : { ok: true }), getURL: (p) => p },
     identity: { getRedirectURL: () => "https://0123456789abcdef.extensions.allizom.org/" },
     tabs: { create: async () => {}, query: async () => [] },
-    permissions: { request: async () => true, remove: async () => true },
+    permissions: { contains: async () => !q.has("noaccess"), request: async () => true, remove: async () => true },
   };
   document.documentElement.dataset.page = page;
 </script>

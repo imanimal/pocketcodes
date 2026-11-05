@@ -24,11 +24,11 @@
   PC.HOST = "io.github.imanimal.pocketcodes";
 
   const DEFAULTS = {
-    v: 1,
+    v: 2,
     notify: true,       // a notification when a new code arrives
     every: 1,           // minutes between checks (1, 2 or 5)
     fresh: 10,          // minutes a code counts as fresh: offered for filling, and counted on the badge
-    page: false,        // offer codes on sign-in pages (needs the all-sites permission; registers fill.js and offer.js)
+    page: true,         // the chip on sign-in pages (offer.js, on every page through the manifest's content_scripts)
     fill: "ask",        // on those pages: ask (show a chip) | auto (fill it as soon as it arrives)
   };
   PC.DEFAULTS = DEFAULTS;

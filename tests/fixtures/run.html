@@ -74,10 +74,11 @@ async function detection(win) {
   }
 }
 
-/** offer.js against a stand-in browser API: the chip shows, auto-fill fills, fast checks are asked for. */
+/** offer.js against a stand-in browser API: the chip pops up and waits, shows the code, auto-fill fills, fast checks
+    are asked for. */
 async function offer(f) {
-  const make = (codes, settings) => {
-    const store = { codes, settings };
+  const make = (codes, settings, accounts) => {
+    const store = { codes, settings, accounts };
     const listeners = [];
     const sent = [];
     return {
@@ -96,11 +97,27 @@ async function offer(f) {
       push(c) { this.api.storage.local.set({ codes: [c].concat(store.codes) }); },
     };
   };
+  const chip = (w) => { const h = w.document.querySelector("pocketcodes-chip"); return (h && h.dataset.state) || ""; };
   const code = (n, ago) => ({ id: "g:" + n, code: n, from: "Example", email: "you@example.com", at: Date.now() - ago, used: false, seen: false });
 
   const cases = [
     { name: "offer: chip by a code box when a fresh code exists", page: "page-otp.html", codes: [code("482913", 60e3)], settings: { fill: "ask" },
-      check: async (w, s) => (await until(() => w.document.querySelector("pocketcodes-chip"))) && w.document.getElementById("otp").value === "" },
+      check: async (w, s) => (await until(() => chip(w) === "code")) && w.document.getElementById("otp").value === "" },
+    { name: "offer: pops up waiting as soon as a code box appears, then shows the code when it lands", page: "page-otp.html", codes: [], settings: { fill: "ask" },
+      check: async (w, s) => (await until(() => chip(w) === "waiting")) && (s.push(code("135790", 1e3)), until(() => chip(w) === "code")) },
+    { name: "offer: Escape puts the waiting chip away, and a code that lands still shows", page: "page-otp.html", codes: [], settings: { fill: "ask" },
+      check: async (w, s) => {
+        if (!(await until(() => chip(w) === "waiting"))) return false;
+        w.document.dispatchEvent(new w.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        await wait(400);
+        if (chip(w)) return false;
+        s.push(code("864200", 1e3));
+        return until(() => chip(w) === "code");
+      } },
+    { name: "offer: no chip and no checks without an inbox added", page: "page-otp.html", codes: [], settings: {}, accounts: [],
+      check: async (w, s) => { await wait(800); return !chip(w) && !s.sent.some((m) => m.type === "poll"); } },
+    { name: "offer: nothing at all with the chip turned off in Settings", page: "page-otp.html", codes: [code("482913", 60e3)], settings: { page: false, fill: "auto" },
+      check: async (w, s) => { await wait(800); return !chip(w) && !s.sent.some((m) => m.type === "poll") && w.document.getElementById("otp").value === ""; } },
     { name: "offer: auto mode fills the box and marks the code used", page: "page-otp.html", codes: [code("735201", 30e3)], settings: { fill: "auto" },
       check: async (w, s) => (await until(() => w.document.getElementById("otp").value === "735201")) && s.sent.some((m) => m.type === "used" && m.id === "g:735201") },
     { name: "offer: a code that arrives later is filled when it lands", page: "page-otp.html", codes: [], settings: { fill: "auto" },
@@ -109,14 +126,14 @@ async function offer(f) {
       check: async (w, s) => until(() => s.sent.some((m) => m.type === "poll" && m.fast)) },
     { name: "offer: a box added later (single-page app) is noticed", page: "page-late.html", codes: [code("112233", 20e3)], settings: { fill: "auto" },
       check: async (w, s) => until(() => { const i = w.document.getElementById("late"); return i && i.value === "112233"; }, 4000) },
-    { name: "offer: a stale code is not offered", page: "page-otp.html", codes: [code("999000", 60 * 60e3)], settings: { fill: "auto" },
-      check: async (w, s) => { await wait(800); return !w.document.querySelector("pocketcodes-chip") && w.document.getElementById("otp").value === ""; } },
+    { name: "offer: a stale code is not offered (the chip waits for a new one)", page: "page-otp.html", codes: [code("999000", 60 * 60e3)], settings: { fill: "auto" },
+      check: async (w, s) => { await wait(800); return chip(w) === "waiting" && w.document.getElementById("otp").value === ""; } },
     { name: "offer: nothing on a page without a code box, and no checks asked for", page: "page-login.html", codes: [code("482913", 60e3)], settings: { fill: "auto" },
-      check: async (w, s) => { await wait(800); return !w.document.querySelector("pocketcodes-chip") && !s.sent.some((m) => m.type === "poll"); } },
+      check: async (w, s) => { await wait(800); return !chip(w) && !s.sent.some((m) => m.type === "poll"); } },
   ];
   for (const c of cases) {
     const w = await frameReady(f, c.page + "?" + Math.random());
-    const s = make(c.codes, Object.assign({ fresh: 10, page: true }, c.settings));
+    const s = make(c.codes, Object.assign({ fresh: 10, page: true }, c.settings), c.accounts || [{ id: "google:you@example.com", kind: "google", email: "you@example.com" }]);
     w.browser = s.api;
     await load(w, "../../src/lib/util.js");
     await load(w, "../../src/content/fill.js");

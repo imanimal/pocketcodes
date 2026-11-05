@@ -14,11 +14,14 @@
   let S = { accounts: [], settings: PC.DEFAULTS, google: {}, microsoft: {}, st: {}, meta: {}, codes: [] };
   let ui = { addImap: g.location.hash === "#icloud", preset: "icloud", note: "", noteBad: false, helper: null, armed: null, working: null, open: g.location.hash === "#helper" ? "helper" : null };
 
+  /** Whether the browser still lets the sign-in page script run (you can take its site access away in the add-ons page). */
+  const siteAccess = () => (api.permissions && api.permissions.contains ? api.permissions.contains({ origins: ["<all_urls>"] }).catch(() => true) : Promise.resolve(true));
+
   async function load() {
     const r = await api.storage.local.get(["accounts", "settings", "google", "microsoft", "meta", "codes"]);
     const accounts = r.accounts || [];
     const st = await api.storage.local.get(accounts.map((a) => "st:" + a.id));
-    S = { accounts, settings: Object.assign({}, PC.DEFAULTS, r.settings || {}), google: r.google || {}, microsoft: r.microsoft || {}, st, meta: r.meta || {}, codes: r.codes || [] };
+    S = { accounts, settings: Object.assign({}, PC.DEFAULTS, r.settings || {}), google: r.google || {}, microsoft: r.microsoft || {}, st, meta: r.meta || {}, codes: r.codes || [], access: await siteAccess() };
   }
 
   const googleReady = () => builtIn || !!(S.google.clientId && S.google.clientSecret);
@@ -69,6 +72,7 @@
 
   function draw() {
     const s = S.settings;
+    const pageOn = s.page && S.access;
     const g1 = S.google, m1 = S.microsoft;
     const now = Date.now();
     const top = S.codes.find((c) => !c.used && now - c.at < s.fresh * PC.MIN);
@@ -97,12 +101,14 @@
               <p class="status ${ui.noteBad ? "bad" : "good"}" role="status">${esc(ui.note)}</p>
               ${n ? S.accounts.map(acctRow).join("") : ""}
             </div></div>
-          <div class="step"><span class="n ${s.page ? "done" : ""}">2</span><h3>Show codes on sign-in pages</h3>
+          <div class="step"><span class="n ${pageOn ? "done" : ""}">2</span><h3>Codes pop up on sign-in pages</h3>
             <div class="body">
-              <p>A small chip appears by any code box with the newest code, and PocketCodes checks your inboxes every few seconds while one is open. ${s.page ? "" : "Firefox will ask to let it run on all sites; it only looks at code boxes and the form around them, and sends nothing anywhere."}</p>
-              <div class="row">${s.page
+              <p>When a page asks for a code, a small chip pops up by the box: it checks your inboxes every few seconds and shows the code the moment it lands. It only looks at code boxes and the form around them, and sends nothing anywhere.</p>
+              <div class="row">${pageOn
                 ? `<span class="good"><b>On.</b></span><span class="quiet">When a code arrives:</span><select data-set="settings.fill" aria-label="When a code arrives"><option value="ask" ${s.fill === "ask" ? "selected" : ""}>Show it, I press Fill</option><option value="auto" ${s.fill === "auto" ? "selected" : ""}>Fill it in for me</option></select><button data-act="pageOff" class="sm">Turn off</button>`
-                : `<button data-act="pageOn" class="go">Turn on</button>`}</div>
+                : s.page
+                  ? `<span class="bad">Firefox has PocketCodes' access to sites turned off, so the chip can't appear.</span><button data-act="pageOn" class="go">Allow</button>`
+                  : `<span class="quiet"><b>Off.</b></span><button data-act="pageOn" class="go">Turn on</button>`}</div>
             </div></div>
           <div class="step"><span class="n done">3</span><h3>Fill with one key</h3>
             <div class="body"><p>On any page, <kbd>Alt+Shift+F</kbd> fills the newest code, and <kbd>Alt+Shift+C</kbd> opens the list. The toolbar button's <b>Fill</b> does the same.</p></div></div>
@@ -200,19 +206,14 @@
   }
 
   async function setPage(on) {
-    if (on) {
-      // the permission prompt needs this click, so ask before anything else is awaited
-      const ok = await api.permissions.request({ origins: ["<all_urls>"] });
-      if (!ok) { note("Without that permission the chip can't appear. The toolbar's Fill key still works.", true); return; }
-      const r = await PC.send({ type: "page", on: true });
-      if (r && r.error) { note(r.error, true); return; }
-      await PC.store.setSettings({ page: true });
-      ui.note = "On. Codes will show up by the box on sign-in pages."; ui.noteBad = false;
-    } else {
-      await PC.send({ type: "page", on: false });
-      await api.permissions.remove({ origins: ["<all_urls>"] }).catch(() => {});
-      await PC.store.setSettings({ page: false });
+    // the access prompt needs this click, so ask before anything else is awaited
+    if (on && !S.access && !(await api.permissions.request({ origins: ["<all_urls>"] }))) {
+      note("Without access to sites the chip can't appear. The toolbar's Fill key still works.", true);
+      return;
     }
+    const r = await PC.send({ type: "page", on });
+    if (r && r.error) { note(r.error, true); return; }
+    ui.note = on ? "On. Codes pop up by the box on sign-in pages." : ""; ui.noteBad = false;
     await load(); draw();
   }
 

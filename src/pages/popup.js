@@ -10,11 +10,14 @@
   let S = { accounts: [], codes: [], settings: PC.DEFAULTS, meta: {}, st: {} };
   let busy = false, msgTimer = 0;
 
+  /** Whether the browser still lets the sign-in page script run (you can take its site access away in the add-ons page). */
+  const siteAccess = () => (api.permissions && api.permissions.contains ? api.permissions.contains({ origins: ["<all_urls>"] }).catch(() => true) : Promise.resolve(true));
+
   async function load() {
     const r = await api.storage.local.get(["accounts", "codes", "settings", "meta"]);
     const accounts = r.accounts || [];
     const st = await api.storage.local.get(accounts.map((a) => "st:" + a.id));
-    S = { accounts, codes: r.codes || [], settings: Object.assign({}, PC.DEFAULTS, r.settings || {}), meta: r.meta || {}, st };
+    S = { accounts, codes: r.codes || [], settings: Object.assign({}, PC.DEFAULTS, r.settings || {}), meta: r.meta || {}, st, access: await siteAccess() };
   }
 
   function say(text) {
@@ -35,9 +38,9 @@
       const fix = s.nohost ? `<button data-act="settings" data-to="icloud" class="sm">Set up</button>` : s.auth ? `<button data-act="reauth" data-id="${esc(a.id)}" class="go sm">Sign in again</button>` : "";
       return `<div class="warn card"><span><b>${esc(a.email)}</b><br><span class="bad">${esc(s.error)}</span></span>${fix}</div>`;
     }).join("");
-    // the sign-in page offer is what makes codes appear by themselves, so say so until it's on
-    const nudge = S.accounts.length && !S.settings.page
-      ? `<div class="nudge card"><span>Show codes right by the box on sign-in pages</span><button data-act="settings" data-to="welcome" class="sm">Turn on</button></div>` : "";
+    // the chip on sign-in pages is what makes codes appear by themselves, so say so when the browser took its access away
+    const nudge = S.accounts.length && S.settings.page && !S.access
+      ? `<div class="nudge card"><span>Let codes pop up by the box on sign-in pages</span><button data-act="settings" data-to="welcome" class="sm">Allow</button></div>` : "";
     let body;
     if (!S.accounts.length) {
       body = `<div class="empty card"><span class="lcd blank">--- ---</span>

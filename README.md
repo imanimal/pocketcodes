@@ -4,7 +4,7 @@ One-time sign-in codes from every Gmail, Outlook, iCloud and IMAP inbox you add,
 
 - Add as many accounts as you like. Each one is checked every minute (or 2 or 5), and a new code shows on the toolbar badge and as a notification.
 - **Fill** puts the newest fresh code into the page you're on: the popup's Fill key, or <kbd>Alt+Shift+F</kbd>. <kbd>Alt+Shift+C</kbd> opens the list.
-- **Codes on sign-in pages**: a small chip by any code box with the newest code (or it fills the box as soon as the code arrives), and fast checks while the box is open. Turn it on in step 2 of the settings page; Firefox asks once to let it run on all sites. Only the tab you're looking at shows or fills a code.
+- **Codes pop up on sign-in pages**: when a page asks for a code, a small chip pops up by the box on its own, checks your inboxes every few seconds, and shows the code the moment the email lands, with a Fill key (or it fills the box for you). No clicking the toolbar button. Firefox asks once, at install, to let PocketCodes run on all sites; it only looks at code boxes and the form around them. Only the tab you're looking at shows or fills a code, and step 2 of the settings page turns it off.
 - The Pocket look of the icon: cream plastic, orange keys, codes on an LCD. It goes graphite with a teal LCD when your system is in dark mode.
 
 ## Privacy
