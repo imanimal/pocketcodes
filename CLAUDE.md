@@ -14,7 +14,7 @@ A Firefox and Chrome MV3 extension (one source tree, one manifest) that collects
 - **Two browsers, one tree.** `manifest.json` loads unpacked in Firefox 128+ and Chrome 111+ as it is (Firefox runs `background.scripts`, Chrome the `service_worker`). `tools/build.py` writes each browser's zip; it drops `key` from the Firefox one. The manifest `key` pins the Chrome extension ID (`kammpeiopjjhipmdggclkefddnlagnpk`) so the OAuth redirect URI and the helper's `allowed_origins` stay stable; Firefox's ID is `codes@imanimal.github.io`. Never type `\uXXXX` escapes into files through some tools: they get turned into raw characters. `codes.js` builds its invisible-character classes from `String.fromCharCode`.
 - **No flash of permissions.** The only host permissions are the four API hosts. The all-sites permission is optional, asked on the options page when the user turns on "Offer codes on sign-in pages", and registers `fill.js` + `offer.js` with `scripting.registerContentScripts`. Without it, Fill works on the current tab through `activeTab` (popup key, Alt+Shift+F).
 - **Human, plain UI.** Standard look: sentence case, system fonts, no gradients, glow or emoji, one accent. Pages build markup with `PC.mount`/`PC.frag` (DOMParser into a template), never `innerHTML`, which addons.mozilla.org's linter flags. The on-page chip is built with `createElement` in a closed shadow root.
-- **Private repo, placeholder data.** Tests and fixtures use made-up addresses. Nothing local (paths, tokens, client secrets) in a commit. Commit as imanimal `116379547+imanimal@users.noreply.github.com`.
+- **Public repo, placeholder data.** Public so Firefox can fetch `updates.json` and the `.xpi` from releases. Tests and fixtures use made-up addresses. Nothing local (paths, tokens, client secrets) in a commit. Commit as imanimal `116379547+imanimal@users.noreply.github.com`.
 
 ## Commands
 
@@ -30,7 +30,7 @@ python -m unittest discover -s tests -p "test_*.py"
 python tools/build.py
 ```
 
-Releases are tag-driven (`.github/workflows/release.yml`): `python tools/build.py --bump X.Y.Z`, commit, tag `vX.Y.Z`, push the tag; it signs the built Firefox package unlisted on AMO (secrets `AMO_JWT_ISSUER`, `AMO_JWT_SECRET`) and publishes the `.xpi`, `updates.json` and the Chrome zip. Installed copies self-update through the manifest's `update_url`, which only works while the repo is public.
+Releases are tag-driven (`.github/workflows/release.yml`): `python tools/build.py --bump X.Y.Z`, commit, tag `vX.Y.Z`, push the tag; it signs the built Firefox package unlisted on AMO (secrets `AMO_JWT_ISSUER`, `AMO_JWT_SECRET`) and publishes the `.xpi`, `updates.json` and the Chrome zip. Installed copies self-update through the manifest's `update_url`, which only works because the repo is public.
 
 Try it: Firefox `about:debugging` → Load Temporary Add-on → `manifest.json`; Chrome `chrome://extensions` → Developer mode → Load unpacked → this folder. Then `python host/install_host.py` for iCloud/IMAP. The sign-in flows need real accounts and a Google Cloud OAuth client, so they can't be tested offline; everything else has tests with a fake `fetch`, a fake IMAP server, or recorded response shapes.
 
