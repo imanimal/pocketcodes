@@ -13,7 +13,8 @@
 
   /** Servers worth a preset. iCloud and Yahoo want an app-specific password, not the account's own. */
   const presets = {
-    icloud: { label: "iCloud", host: "imap.mail.me.com", port: 993, secret: "an app-specific password from appleid.apple.com → Sign-In and Security" },
+    icloud: { label: "iCloud", host: "imap.mail.me.com", port: 993, secret: "an app-specific password from account.apple.com → Sign-In and Security → App-Specific Passwords", link: "https://account.apple.com/account/manage" },
+    gmail: { label: "Gmail (app password)", host: "imap.gmail.com", port: 993, secret: "an app password from your Google account (needs 2-Step Verification)", link: "https://myaccount.google.com/apppasswords" },
     yahoo: { label: "Yahoo", host: "imap.mail.yahoo.com", port: 993, secret: "an app password from Yahoo's account security page" },
     aol: { label: "AOL", host: "imap.aol.com", port: 993, secret: "an app password from AOL's account security page" },
     fastmail: { label: "Fastmail", host: "imap.fastmail.com", port: 993, secret: "an app password from Fastmail's settings" },

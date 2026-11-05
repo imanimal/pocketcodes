@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PocketCodes page tests</title>
+<!-- Runs the real src/content scripts against pages.html in a real browser. Serve the repo root and open this page:
+       python -m http.server 4800    then    http://127.0.0.1:4800/tests/fixtures/run.html
+     It prints a table and sets window.RESULT = { pass, fail, rows } (tools/e2e.mjs and the checks read that). -->
+<style>
+  body { font: 13px system-ui; margin: 16px; } td, th { padding: 3px 8px; text-align: left; border-bottom: 1px solid #ddd; }
+  .ok { color: #1f6b3a; } .no { color: #a3262a; font-weight: 700; } iframe { width: 900px; height: 300px; }
+</style>
+</head>
+<body>
+<h1 id="sum">Running…</h1>
+<table><thead><tr><th>Result</th><th>Case</th><th>Detail</th></tr></thead><tbody id="rows"></tbody></table>
+<iframe id="f1" src="pages.html"></iframe>
+<iframe id="f2" src="about:blank"></iframe>
+<script>
+const rows = [];
+const report = (ok, name, detail) => {
+  rows.push({ ok, name, detail: detail || "" });
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td class="${ok ? "ok" : "no"}">${ok ? "pass" : "FAIL"}</td><td></td><td></td>`;
+  tr.children[1].textContent = name; tr.children[2].textContent = detail || "";
+  document.getElementById("rows").append(tr);
+};
+const load = (win, src) => new Promise((res, rej) => {
+  const s = win.document.createElement("script");
+  s.src = new URL(src, location.href).href + "?v=" + Date.now(); // never a cached copy of the code under test
+  s.onload = res; s.onerror = () => rej(new Error("couldn't load " + src));
+  win.document.head.append(s);
+});
+// resolves on the load of `src` itself, never a stray about:blank load from before it
+const frameReady = (f, src) => new Promise((res) => {
+  const want = src ? src.split("?")[0] : (f.getAttribute("src") || "");
+  f.onload = () => { const w = f.contentWindow; if (w.location.pathname.endsWith(want)) { f.onload = null; res(w); } };
+  if (src) f.src = src;
+});
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const until = async (fn, ms = 3000) => { const t = Date.now(); while (Date.now() - t < ms) { if (fn()) return true; await wait(50); } return false; };
+
+/** Every element marked data-hit under root, through open shadow roots. */
+function hits(root) {
+  const out = [...root.querySelectorAll("[data-hit]")];
+  for (const el of root.querySelectorAll("*")) if (el.shadowRoot) out.push(...hits(el.shadowRoot));
+  return out;
+}
+
+async function detection(win) {
+  await load(win, "../../src/content/fill.js");
+  const F = win.PC.fill;
+  for (const sec of win.document.querySelectorAll("section")) {
+    const want = sec.dataset.want, note = sec.dataset.note;
+    const found = F.find(sec);
+    const els = found.flatMap((t) => (t.kind === "one" ? [t.el] : t.els));
+    const expect = hits(sec);
+    let ok, detail;
+    if (want === "none") { ok = found.length === 0; detail = ok ? "" : `found ${found.length}: ${els.map((e) => e.name || e.id || e.outerHTML.slice(0, 40)).join(", ")}`; }
+    else {
+      ok = found.length === 1 && found[0].kind === want && els.length === expect.length && expect.every((e) => els.includes(e));
+      detail = ok ? "" : `wanted ${want} of ${expect.length}, found ${found.map((t) => t.kind + (t.els ? "×" + t.els.length : "")).join(", ") || "nothing"}`;
+      if (ok) {
+        // and the fill lands, digit by digit for split boxes, through the events frameworks listen to
+        let events = 0;
+        sec.addEventListener("input", () => events++, true);
+        F.fill("482913", found);
+        const got = want === "one" ? els[0].value.replace(/\D/g, "") : els.map((e) => e.value).join("");
+        const expectVal = want === "one" && els[0].type === "number" ? "482913" : "482913".slice(0, want === "split" ? els.length : 99);
+        if (got !== expectVal || !events) { ok = false; detail = `filled "${got}" with ${events} input events`; }
+      }
+    }
+    report(ok, `find: ${note}`, detail);
+  }
+}
+
+/** offer.js against a stand-in browser API: the chip shows, auto-fill fills, fast checks are asked for. */
+async function offer(f) {
+  const make = (codes, settings) => {
+    const store = { codes, settings };
+    const listeners = [];
+    const sent = [];
+    return {
+      sent, store,
+      api: {
+        storage: {
+          local: {
+            get: async (k) => { const keys = Array.isArray(k) ? k : [k]; return Object.fromEntries(keys.filter((x) => x in store).map((x) => [x, store[x]])); },
+            set: async (o) => { Object.assign(store, o); listeners.forEach((l) => l(Object.fromEntries(Object.keys(o).map((x) => [x, { newValue: o[x] }])), "local")); },
+            remove: async () => {},
+          },
+          onChanged: { addListener: (l) => listeners.push(l) },
+        },
+        runtime: { sendMessage: async (m) => { sent.push(m); return { ok: true }; } },
+      },
+      push(c) { this.api.storage.local.set({ codes: [c].concat(store.codes) }); },
+    };
+  };
+  const code = (n, ago) => ({ id: "g:" + n, code: n, from: "Example", email: "you@example.com", at: Date.now() - ago, used: false, seen: false });
+
+  const cases = [
+    { name: "offer: chip by a code box when a fresh code exists", page: "page-otp.html", codes: [code("482913", 60e3)], settings: { fill: "ask" },
+      check: async (w, s) => (await until(() => w.document.querySelector("pocketcodes-chip"))) && w.document.getElementById("otp").value === "" },
+    { name: "offer: auto mode fills the box and marks the code used", page: "page-otp.html", codes: [code("735201", 30e3)], settings: { fill: "auto" },
+      check: async (w, s) => (await until(() => w.document.getElementById("otp").value === "735201")) && s.sent.some((m) => m.type === "used" && m.id === "g:735201") },
+    { name: "offer: a code that arrives later is filled when it lands", page: "page-otp.html", codes: [], settings: { fill: "auto" },
+      check: async (w, s) => { await wait(400); if (w.document.getElementById("otp").value) return false; s.push(code("246810", 1e3)); return until(() => w.document.getElementById("otp").value === "246810"); } },
+    { name: "offer: asks for fast checks while a code box is on screen", page: "page-otp.html", codes: [], settings: {},
+      check: async (w, s) => until(() => s.sent.some((m) => m.type === "poll" && m.fast)) },
+    { name: "offer: a box added later (single-page app) is noticed", page: "page-late.html", codes: [code("112233", 20e3)], settings: { fill: "auto" },
+      check: async (w, s) => until(() => { const i = w.document.getElementById("late"); return i && i.value === "112233"; }, 4000) },
+    { name: "offer: a stale code is not offered", page: "page-otp.html", codes: [code("999000", 60 * 60e3)], settings: { fill: "auto" },
+      check: async (w, s) => { await wait(800); return !w.document.querySelector("pocketcodes-chip") && w.document.getElementById("otp").value === ""; } },
+    { name: "offer: nothing on a page without a code box, and no checks asked for", page: "page-login.html", codes: [code("482913", 60e3)], settings: { fill: "auto" },
+      check: async (w, s) => { await wait(800); return !w.document.querySelector("pocketcodes-chip") && !s.sent.some((m) => m.type === "poll"); } },
+  ];
+  for (const c of cases) {
+    const w = await frameReady(f, c.page + "?" + Math.random());
+    const s = make(c.codes, Object.assign({ fresh: 10, page: true }, c.settings));
+    w.browser = s.api;
+    await load(w, "../../src/lib/util.js");
+    await load(w, "../../src/content/fill.js");
+    await load(w, "../../src/content/offer.js");
+    let ok = false, detail = "";
+    try { ok = await c.check(w, s); } catch (e) { detail = String(e); }
+    if (!ok && !detail) detail = "sent: " + JSON.stringify(s.sent.map((m) => m.type));
+    report(ok, c.name, detail);
+  }
+}
+
+(async () => {
+  try {
+    await detection(await frameReady(document.getElementById("f1")));
+    await offer(document.getElementById("f2"));
+  } catch (e) { report(false, "runner", String(e && e.stack || e)); }
+  const fail = rows.filter((r) => !r.ok).length;
+  document.getElementById("sum").textContent = fail ? `${fail} failed of ${rows.length}` : `All ${rows.length} passed`;
+  window.RESULT = { pass: rows.length - fail, fail, rows };
+})();
+</script>
+</body>
+</html>

@@ -104,7 +104,8 @@
       const fresh = found.filter((f) => !have.has(f.id));
       const now = Date.now();
       const next = fresh.concat(cur).filter((c) => now - c.at < KEEP).sort((a, b) => b.at - a.at).slice(0, CODES_CAP);
-      await PC.store.set("codes", next);
+      // no write when nothing changed: every write wakes the popup and each sign-in page's chip
+      if (next.length !== cur.length || next.some((c, i) => c.id !== cur[i].id)) await PC.store.set("codes", next);
       return fresh;
     });
   }

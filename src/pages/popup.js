@@ -28,30 +28,35 @@
     const now = Date.now();
     const fresh = S.settings.fresh * PC.MIN;
     const bad = S.accounts.map((a) => ({ a, s: S.st["st:" + a.id] })).filter((x) => x.s && !x.s.ok);
-    const head = `<div class="bar"><h1>PocketCodes</h1>
+    const head = `<div class="band"><span class="label">Pocket<i>codes</i></span>
       <button data-act="check" ${busy ? "disabled" : ""}>${busy ? "Checking…" : "Check now"}</button>
-      <button data-act="settings" aria-label="Settings" title="Settings">Settings</button></div>`;
+      <button data-act="settings" title="Settings">Settings</button></div>`;
     const warns = bad.map(({ a, s }) => {
-      const fix = s.nohost ? `<button data-act="settings" data-to="helper">Set up</button>` : s.auth ? `<button data-act="reauth" data-id="${esc(a.id)}" class="go">Sign in again</button>` : "";
-      return `<div class="warn"><span><b>${esc(a.email)}</b><br><span class="bad">${esc(s.error)}</span></span>${fix}</div>`;
+      const fix = s.nohost ? `<button data-act="settings" data-to="icloud" class="sm">Set up</button>` : s.auth ? `<button data-act="reauth" data-id="${esc(a.id)}" class="go sm">Sign in again</button>` : "";
+      return `<div class="warn card"><span><b>${esc(a.email)}</b><br><span class="bad">${esc(s.error)}</span></span>${fix}</div>`;
     }).join("");
+    // the sign-in page offer is what makes codes appear by themselves, so say so until it's on
+    const nudge = S.accounts.length && !S.settings.page
+      ? `<div class="nudge card"><span>Show codes right by the box on sign-in pages</span><button data-act="settings" data-to="welcome" class="sm">Turn on</button></div>` : "";
     let body;
     if (!S.accounts.length) {
-      body = `<p class="note">No accounts yet. Add a Gmail, Outlook or IMAP account and its codes will show up here.</p>
-        <p class="note"><button data-act="settings" class="go">Add an account</button></p>`;
+      body = `<div class="empty card"><span class="lcd blank">--- ---</span>
+        <p>Add your inboxes and every sign-in code shows up here, ready to fill.</p>
+        <button data-act="settings" data-to="welcome" class="go big">Add an inbox</button></div>`;
     } else if (!S.codes.length) {
-      body = `<p class="note">No codes in the last day. Ask the site to send one and it will appear here within a few seconds.</p>`;
+      body = `<div class="empty card"><span class="lcd blank">--- ---</span>
+        <p>No codes in the last day. Ask the site to send one and it shows up here within seconds.</p></div>`;
     } else {
       body = `<ul class="codes">${S.codes.slice(0, 8).map((c) => `
-        <li class="${now - c.at < fresh ? "" : "old"} ${c.used ? "used" : ""}" data-id="${esc(c.id)}" data-code="${esc(c.code)}">
-          <div class="num">${esc(PC.group(c.code))}</div>
-          <div class="acts"><button data-act="copy">Copy</button><button data-act="fill" class="go">Fill</button></div>
+        <li class="card ${now - c.at < fresh ? "" : "old"} ${c.used ? "used" : ""}" data-id="${esc(c.id)}" data-code="${esc(c.code)}">
+          <span class="lcd" aria-label="Code ${esc(c.code)}">${esc(PC.group(c.code))}</span>
+          <div class="acts"><button data-act="copy" class="sm">Copy</button><button data-act="fill" class="go">Fill</button></div>
           <div class="meta" title="${esc(c.subject)}"><b>${esc(c.from)}</b> · ${esc(PC.ago(c.at, now))}${c.used ? " · used" : ""} · ${esc(c.email)}</div>
         </li>`).join("")}</ul>`;
     }
     const n = S.accounts.length;
-    const foot = `<div class="foot"><span>${n} account${n === 1 ? "" : "s"}</span><span>${S.meta.lastPoll ? "Checked " + esc(PC.ago(S.meta.lastPoll, now)) : ""}</span></div>`;
-    PC.mount(app, head + warns + body + foot);
+    const foot = `<div class="foot"><span>${n} inbox${n === 1 ? "" : "es"}</span><span>${S.meta.lastPoll ? "Checked " + esc(PC.ago(S.meta.lastPoll, now)) : ""}</span></div>`;
+    PC.mount(app, head + warns + nudge + body + foot);
   }
 
   async function act(el) {

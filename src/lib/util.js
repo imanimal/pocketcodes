@@ -1,6 +1,6 @@
 /* PocketCodes: shared helpers for every context (background, popup, options, and the sign-in pages' content script).
-   Classic scripts on globalThis.PC, no bundler and no npm. Load order: util → codes → google → microsoft → imap →
-   inbox → background; pages load util → codes → their own script; the content script loads util → fill → offer.
+   Classic scripts on globalThis.PC, no bundler and no npm. Load order: util → client → codes → google → microsoft →
+   imap → inbox → background; pages load util (→ client → imap on the options page) → their own script; the content script loads util → fill → offer.
    The manifest's background list, the <script> tags in src/pages/*.html and background.js's importScripts stay in step.
 
    Storage is all storage.local. Only the background script writes the first group, so reads never race a write;

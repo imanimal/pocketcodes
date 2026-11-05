@@ -16,7 +16,7 @@
     }
   },
   "background": {
-    "scripts": ["src/lib/util.js", "src/lib/codes.js", "src/lib/google.js", "src/lib/microsoft.js", "src/lib/imap.js", "src/lib/inbox.js", "src/background.js"],
+    "scripts": ["src/lib/util.js", "src/lib/client.js", "src/lib/codes.js", "src/lib/google.js", "src/lib/microsoft.js", "src/lib/imap.js", "src/lib/inbox.js", "src/background.js"],
     "service_worker": "src/background.js"
   },
   "action": {

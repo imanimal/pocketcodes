@@ -4,11 +4,12 @@ One-time sign-in codes from every Gmail, Outlook, iCloud and IMAP inbox you add,
 
 - Add as many accounts as you like. Each one is checked every minute (or 2 or 5), and a new code shows on the toolbar badge and as a notification.
 - **Fill** puts the newest fresh code into the page you're on: the popup's Fill key, or <kbd>Alt+Shift+F</kbd>. <kbd>Alt+Shift+C</kbd> opens the list.
-- Optional: a small chip by code boxes on sign-in pages that offers the code (or fills it as soon as it arrives). This one asks for permission to run on all sites, so it's off until you turn it on.
+- **Codes on sign-in pages**: a small chip by any code box with the newest code (or it fills the box as soon as the code arrives), and fast checks while the box is open. Turn it on in step 2 of the settings page; Firefox asks once to let it run on all sites. Only the tab you're looking at shows or fills a code.
+- The Pocket look of the icon: cream plastic, orange keys, codes on an LCD. It goes graphite with a teal LCD when your system is in dark mode.
 
 ## Privacy
 
-PocketCodes only reads mail: Gmail with `gmail.readonly`, Outlook with `Mail.Read`, IMAP with `EXAMINE` and `BODY.PEEK`, so nothing is ever sent, deleted, moved or marked read. Message bodies are searched for a code and dropped; only the code, the sender's name, the subject and the time are kept, for a day. There is no server: Google and Microsoft sign-ins go to your own OAuth client, and IMAP passwords stay in your operating system's vault (Windows DPAPI, macOS Keychain) through the helper below, never in the extension.
+PocketCodes only reads mail: Gmail with `gmail.readonly`, Outlook with `Mail.Read`, IMAP with `EXAMINE` and `BODY.PEEK`, so nothing is ever sent, deleted, moved or marked read. Message bodies are searched for a code and dropped; only the code, the sender's name, the subject and the time are kept, for a day. There is no server: Google and Microsoft sign-ins go straight from your browser to Google or Microsoft, and IMAP passwords stay in your operating system's vault (Windows DPAPI, macOS Keychain) through the helper below, never in the extension.
 
 ## Install
 
@@ -18,7 +19,9 @@ Chrome: `chrome://extensions` → Developer mode → **Load unpacked** → this 
 
 ### Gmail
 
-Gmail needs a free OAuth client of your own (about five minutes):
+In Firefox, **Add Gmail** is a Google sign-in and nothing else. Google says PocketCodes isn't verified (it's a free personal app, and verification for mail access costs money): choose **Continue**.
+
+Chrome, or a copy loaded from this folder, has no built-in Google sign-in, so it needs a free OAuth client of your own (about five minutes; Settings › Advanced › Use your own Google client):
 
 1. In [Google Cloud](https://console.cloud.google.com/projectcreate), create a project and enable the [Gmail API](https://console.cloud.google.com/apis/library/gmail.googleapis.com).
 2. Under **Google Auth Platform**, set it up as **External**, add the scope `gmail.readonly`, and either publish the app (it stays "unverified", which is fine for you) or add each address as a test user. Test mode ends sign-ins after 7 days.
@@ -35,14 +38,14 @@ An extension can't open an IMAP connection, so a small helper does it (one stdli
 python host/install_host.py
 ```
 
-Then **Add iCloud or other IMAP** in settings, with an app-specific password (for iCloud, from appleid.apple.com → Sign-In and Security). `python host/install_host.py --uninstall` removes the helper and the passwords it kept. Run the installer again after updating PocketCodes.
+Then **Add iCloud** in settings, with an app-specific password from [account.apple.com](https://account.apple.com/account/manage) → Sign-In and Security → App-Specific Passwords. `python host/install_host.py --uninstall` removes the helper and the passwords it kept. Run the installer again after updating PocketCodes.
 
 ## Develop
 
 Buildless: classic scripts, no npm.
 
 ```bash
-node --test tests/core.test.js
+node --test tests/core.test.js tests/google.test.js
 ```
 
 ```bash
@@ -53,6 +56,10 @@ python -m unittest discover -s tests -p "test_*.py"
 python tools/build.py
 ```
 
-`tools/build.py` writes `dist/pocketcodes-<version>-firefox.zip` and `-chrome.zip`. `tools/gen_icons.py` redraws the icons.
+```bash
+node tools/e2e.mjs
+```
 
-Release: `python tools/build.py --bump 0.2.0`, commit, tag `v0.2.0`, push the tag. The workflow signs the Firefox package as an unlisted add-on (repository secrets `AMO_JWT_ISSUER` and `AMO_JWT_SECRET` from addons.mozilla.org) and publishes the `.xpi`, `updates.json` and the Chrome zip. Installed copies check `updates.json` once a day.
+`tools/e2e.mjs` runs the real extension in a headless Firefox and checks code boxes get the code. `tools/build.py` writes `dist/pocketcodes-<version>-firefox.zip` and `-chrome.zip`. `tools/gen_icons.py` redraws the icons.
+
+Release: `python tools/build.py --bump 0.2.0`, commit, tag `v0.2.0`, push the tag. The workflow builds with the built-in Google client (repository secrets `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, a Desktop app client), signs the Firefox package as an unlisted add-on (`AMO_JWT_ISSUER` and `AMO_JWT_SECRET` from addons.mozilla.org) and publishes the `.xpi`, `updates.json` and the Chrome zip. Installed copies check `updates.json` once a day.

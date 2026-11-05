@@ -4,6 +4,8 @@
 # Installed copies poll updates.json (manifest.json's update_url) and update themselves.
 # Needs two repository secrets from https://addons.mozilla.org/developers/addon/api/key/ :
 #   AMO_JWT_ISSUER, AMO_JWT_SECRET
+# and, for one-click Gmail, the built-in Google client (a Desktop app client; see src/lib/client.js):
+#   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET   (without them the release asks for your own client instead)
 name: Release
 on:
   push:
@@ -18,13 +20,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node --test tests/core.test.js
+      - run: node --test tests/core.test.js tests/google.test.js
       - run: python3 -m unittest discover -s tests -p "test_*.py"
       - name: Check the tag matches manifest.json
         run: |
           v=$(node -p "require('./manifest.json').version")
           test "v$v" = "${GITHUB_REF_NAME}" || { echo "Tag ${GITHUB_REF_NAME} but manifest.json says $v"; exit 1; }
       - name: Build
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
         run: |
           python3 tools/build.py --updates
           mkdir -p build/firefox && cd build/firefox && unzip -q ../../dist/pocketcodes-*-firefox.zip

@@ -4,7 +4,7 @@
    pages' script only read storage and send it messages (below). A check runs on the alarm (settings.every minutes),
    at startup, on "Check now", and every few seconds while a popup is open or a page is waiting for a code. */
 if (typeof importScripts === "function") {
-  importScripts("lib/util.js", "lib/codes.js", "lib/google.js", "lib/microsoft.js", "lib/imap.js", "lib/inbox.js");
+  importScripts("lib/util.js", "lib/client.js", "lib/codes.js", "lib/google.js", "lib/microsoft.js", "lib/imap.js", "lib/inbox.js");
 }
 (function (g) {
   const PC = g.PC;

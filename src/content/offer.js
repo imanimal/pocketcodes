@@ -3,8 +3,10 @@
    it looks for code boxes (fill.js), it reads the codes the background script found out of storage, and when a fresh
    one exists it draws a small chip by the box: the code, where it came from, and a Fill key (or, in "fill it for me"
    mode, it fills as soon as the code arrives). While a code box is on screen it also asks the background to check
-   the inboxes every five seconds for up to three minutes, so the code shows up as soon as the email does.
-   Nothing on the page is read except the boxes' own attributes, and nothing from the page is sent anywhere. */
+   the inboxes every five seconds for up to three minutes, so the code shows up as soon as the email does. Only a
+   tab you're looking at shows or fills a code, so a box left open in the background never uses one up.
+   Nothing on the page is read except the boxes and the text of the form around them (fill.js), and nothing from
+   the page is sent anywhere. */
 (function (g) {
   const PC = g.PC;
   const api = PC.api;
@@ -18,21 +20,29 @@
   const filledAuto = new Set();
   let armedAt = 0, ticks = 0, timer = 0, scanTimer = 0, raf = 0;
 
+  // a small Pocket device: graphite body, the code on an LCD, an orange Fill key (the page's fonts and colours can't
+  // reach into the closed shadow root, and the extension's own fonts aren't exposed to pages, so system monospace)
   const CSS = `
     :host { all: initial; }
-    .chip { position: fixed; display: flex; align-items: stretch; font: 13px/1.3 system-ui, sans-serif; color: #24221e; background: #fff;
-      border: 1px solid #c9c5ba; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,.2); overflow: hidden; max-width: min(340px, 94vw); }
+    .chip { position: fixed; display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 8px; box-sizing: border-box;
+      font: 500 12px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif; color: #ece6da; background: #2a2722;
+      border-radius: 12px; box-shadow: 0 0 0 1px #000, 0 3px 0 #000, 0 10px 24px rgba(0,0,0,.35); max-width: min(360px, 94vw); }
     button { all: unset; cursor: pointer; box-sizing: border-box; }
-    .fill { display: grid; gap: 1px; padding: 7px 12px; text-align: left; min-width: 0; }
-    .fill:hover, .fill:focus-visible { background: #eef2fb; }
-    .code { font: 700 17px/1.2 ui-monospace, Consolas, Menlo, monospace; letter-spacing: .06em; color: #2a4fa8; }
-    .sub { font-size: 12px; color: #6b665c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .x { padding: 0 10px; font-size: 18px; color: #6b665c; border-left: 1px solid #e3dfd5; display: grid; place-items: center; }
-    .x:hover, .x:focus-visible { background: #f4f1ea; color: #24221e; }
+    .lcd { display: grid; gap: 1px; padding: 4px 10px 3px; border-radius: 6px; min-width: 0; text-align: left;
+      background-color: #b1bd93; color: #1f2a17; background-image: radial-gradient(rgba(31,42,23,.09) 1px, transparent 1.3px); background-size: 3px 3px;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,.28), inset 0 2px 4px rgba(0,0,0,.25); }
+    .code { font: 800 19px/1.15 ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace; letter-spacing: .08em; }
+    .sub { font-size: 11px; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .go { padding: 7px 12px; border-radius: 9px; font-weight: 700; font-size: 13px; color: #1b1915; background: #ff5b1f;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 0 0 1px #8a2f0d, 0 3px 0 #8a2f0d; }
+    .go:active { transform: translateY(3px); box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 0 0 1px #8a2f0d; }
+    .x { width: 24px; height: 24px; font-size: 16px; color: #a39c8d; display: grid; place-items: center; border-radius: 6px; }
+    .x:hover, .x:focus-visible { background: #3a3631; color: #ece6da; }
+    :focus-visible { outline: 2px solid #ff5b1f; outline-offset: 2px; }
     @media (prefers-color-scheme: dark) {
-      .chip { color: #ece9e1; background: #24221e; border-color: #4a463e; }
-      .fill:hover, .fill:focus-visible { background: #2c3550; }
-      .code { color: #9db5f2; } .sub, .x { color: #a8a396; } .x { border-color: #3a372f; } .x:hover, .x:focus-visible { background: #33302a; color: #ece9e1; }
+      .chip { background: #0f0e0d; box-shadow: 0 0 0 1px #3f3c36, 0 3px 0 #000, 0 10px 24px rgba(0,0,0,.5); }
+      .lcd { background-color: #45b3a1; color: #04211c; background-image: radial-gradient(rgba(4,33,28,.1) 1px, transparent 1.3px); }
+      .go { background: #ff6a2b; }
     }`;
 
   function build() {
@@ -45,21 +55,27 @@
     chip.className = "chip";
     chip.setAttribute("role", "group");
     chip.setAttribute("aria-label", "PocketCodes");
-    const fillKey = doc.createElement("button");
-    fillKey.className = "fill";
-    fillKey.type = "button";
+    // the LCD and the orange key both fill, so the whole chip is one easy target
+    const lcd = doc.createElement("button");
+    lcd.className = "lcd";
+    lcd.type = "button";
     label = doc.createElement("span");
     label.className = "code";
     sub = doc.createElement("span");
     sub.className = "sub";
-    fillKey.append(label, sub);
+    lcd.append(label, sub);
+    const fillKey = doc.createElement("button");
+    fillKey.className = "go";
+    fillKey.type = "button";
+    fillKey.textContent = "Fill";
     const x = doc.createElement("button");
     x.className = "x";
     x.type = "button";
     x.setAttribute("aria-label", "Dismiss");
     x.textContent = "×";
-    chip.append(fillKey, x);
+    chip.append(lcd, fillKey, x);
     shadow.append(style, chip);
+    lcd.addEventListener("click", () => use());
     fillKey.addEventListener("click", () => use());
     x.addEventListener("click", () => dismiss());
     (doc.body || doc.documentElement).appendChild(host);
@@ -102,6 +118,8 @@
     const now = Date.now();
     offer = codes.find((c) => !c.used && !dismissed.has(c.id) && now - c.at < settings.fresh * PC.MIN) || null;
     if (!offer) { hide(); return; }
+    // only the tab you're looking at takes a code: a box left open in a background tab mustn't use it up
+    if (doc.visibilityState !== "visible") { hide(); return; }
     if (settings.fill === "auto" && !filledAuto.has(offer.id)) {
       filledAuto.add(offer.id);
       use();
@@ -141,6 +159,7 @@
 
   new MutationObserver(later).observe(doc.documentElement, { childList: true, subtree: true });
   doc.addEventListener("focusin", later, true);
+  doc.addEventListener("visibilitychange", () => refresh().catch(() => {}));
   doc.addEventListener("keydown", (e) => { if (e.key === "Escape" && offer) dismiss(); }, true);
   g.addEventListener("scroll", schedulePlace, true);
   g.addEventListener("resize", schedulePlace);

@@ -9,6 +9,8 @@
 The Firefox package drops the manifest's `key` (Chrome's ID pin, which addons.mozilla.org's linter rejects) and
 the `service_worker` line Firefox doesn't run. The Chrome package drops `background.scripts` and
 `browser_specific_settings`. The IMAP helper (host/) isn't packaged: it's installed from this folder.
+With GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET set, the Firefox package's src/lib/client.js carries the built-in
+Google client (see that file); without them it stays blank and Gmail uses the client entered in Settings.
 
 Releases are built by .github/workflows/release.yml, which has Mozilla sign the Firefox package as an unlisted
 add-on and attaches the .xpi, updates.json and the Chrome zip to the GitHub release."""
@@ -19,7 +21,7 @@ import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO = "imanimal/pocketcodes"
-INCLUDE = ["LICENSE", "src", "icons"]
+INCLUDE = ["LICENSE", "src", "icons", "fonts"]
 
 
 def manifest():
@@ -48,9 +50,27 @@ def for_browser(m, browser):
     return m
 
 
+CLIENT = "src/lib/client.js"
+
+
+def client_js():
+    """client.js with the built-in Google client from GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET, or None if unset."""
+    cid, secret = os.environ.get("GOOGLE_CLIENT_ID", "").strip(), os.environ.get("GOOGLE_CLIENT_SECRET", "").strip()
+    if not cid or not secret:
+        return None
+    with open(os.path.join(ROOT, CLIENT), encoding="utf-8") as f:
+        text = f.read()
+    blank = 'PC.CLIENT = { google: { id: "", secret: "" } };'
+    if blank not in text:
+        raise SystemExit(f"{CLIENT} no longer has the line build.py fills in")
+    return text.replace(blank, f"PC.CLIENT = {{ google: {{ id: {json.dumps(cid)}, secret: {json.dumps(secret)} }} }};")
+
+
 def package(dist, browser):
     m = for_browser(manifest(), browser)
     out = os.path.join(dist, f"pocketcodes-{m['version']}-{browser}.zip")
+    # only Firefox can use the built-in client (its loopback redirect); Chrome keeps the blank one
+    client = client_js() if browser == "firefox" else None
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("manifest.json", json.dumps(m, indent=2, ensure_ascii=False) + "\n")
         for item in INCLUDE:
@@ -61,7 +81,11 @@ def package(dist, browser):
             for base, _, files in os.walk(full):
                 for name in sorted(files):
                     p = os.path.join(base, name)
-                    z.write(p, os.path.relpath(p, ROOT).replace(os.sep, "/"))
+                    rel = os.path.relpath(p, ROOT).replace(os.sep, "/")
+                    if rel == CLIENT and client:
+                        z.writestr(rel, client)
+                    else:
+                        z.write(p, rel)
     print(out)
     return out
 

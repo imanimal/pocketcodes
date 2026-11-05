@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PocketCodes code-box fixtures</title>
+<!-- Made-up forms shaped like real sign-in pages. Each <section> says what fill.js must find in it:
+     data-want="one"    one single code box (the input marked data-hit)
+     data-want="split"  one row of split boxes (the inputs marked data-hit)
+     data-want="none"   nothing at all
+     tests/fixtures/run.html loads this page in a frame and checks every section. -->
+<style>
+  body { font: 14px system-ui; } section { border: 1px solid #ccc; margin: 8px; padding: 8px; }
+  .row { display: flex; gap: 6px; } .row input { width: 36px; text-align: center; }
+</style>
+</head>
+<body>
+
+<section data-want="one" data-note="autocomplete one-time-code (GitHub style)">
+  <form><label for="totp">Authentication code</label><input id="totp" name="app_otp" autocomplete="one-time-code" inputmode="numeric" maxlength="6" data-hit></form>
+</section>
+
+<section data-want="one" data-note="tel input called Pin with an aria-label (Google style)">
+  <form><input type="tel" name="Pin" id="idvPin" aria-label="Enter code" data-hit></form>
+</section>
+
+<section data-want="one" data-note="otc name and a Code placeholder (Microsoft style)">
+  <form><input type="tel" name="otc" id="idTxtBx_SAOTCC_OTC" placeholder="Code" data-hit></form>
+</section>
+
+<section data-want="one" data-note="otc name with no other hint">
+  <form><input type="tel" name="otc" id="otcBox" data-hit></form>
+</section>
+
+<section data-want="one" data-note="camelCase otpCode (Amazon style)">
+  <form><input type="text" name="otpCode" id="input-box-otp" data-hit></form>
+</section>
+
+<section data-want="one" data-note="placeholder only (Discord style)">
+  <form><input type="text" placeholder="6-digit authentication code" data-hit></form>
+</section>
+
+<section data-want="one" data-note="number input named code">
+  <form><input type="number" name="code" data-hit></form>
+</section>
+
+<section data-want="one" data-note="password-type OTP field (some banks)">
+  <form><label>One-time passcode <input type="password" name="otp" data-hit></label></form>
+</section>
+
+<section data-want="one" data-note="bare numeric box, the form's heading says code">
+  <form><h2>Check your email</h2><p>Enter the 6-digit code we sent to you.</p><input type="text" inputmode="numeric" maxlength="6" data-hit><button>Verify</button></form>
+</section>
+
+<section data-want="one" data-note="bare box with a pattern, the dialog says verification">
+  <div role="dialog"><h3>Verification required</h3><input type="text" pattern="[0-9]*" autocomplete="off" data-hit></div>
+</section>
+
+<section data-want="one" data-note="aria-labelledby a heading">
+  <form><h3 id="h-mfa">Two-factor authentication</h3><input type="text" aria-labelledby="h-mfa" data-hit></form>
+</section>
+
+<section data-want="split" data-note="six maxlength=1 boxes (Apple style)">
+  <div class="row"><input maxlength="1" data-hit><input maxlength="1" data-hit><input maxlength="1" data-hit><input maxlength="1" data-hit><input maxlength="1" data-hit><input maxlength="1" data-hit></div>
+</section>
+
+<section data-want="split" data-note="six boxes each wrapped in a span">
+  <div class="row"><span><input maxlength="1" inputmode="numeric" data-hit></span><span><input maxlength="1" inputmode="numeric" data-hit></span><span><input maxlength="1" inputmode="numeric" data-hit></span><span><input maxlength="1" inputmode="numeric" data-hit></span><span><input maxlength="1" inputmode="numeric" data-hit></span><span><input maxlength="1" inputmode="numeric" data-hit></span></div>
+</section>
+
+<section data-want="split" data-note="six narrow numeric boxes with no maxlength (React OTP input style)">
+  <div class="row" aria-label="Verification code"><input inputmode="numeric" data-hit><input inputmode="numeric" data-hit><input inputmode="numeric" data-hit><input inputmode="numeric" data-hit><input inputmode="numeric" data-hit><input inputmode="numeric" data-hit></div>
+</section>
+
+<section data-want="one" data-note="a code box inside an open shadow root" data-shadow>
+  <otp-field></otp-field>
+</section>
+
+<!-- the quiet cases: none of these may be offered a code -->
+<section data-want="none" data-note="username and password">
+  <form><input type="text" name="username" autocomplete="username"><input type="password" name="password" autocomplete="current-password"></form>
+</section>
+
+<section data-want="none" data-note="credit card">
+  <form><input name="cardnumber" autocomplete="cc-number" inputmode="numeric"><input name="cvc" autocomplete="cc-csc" maxlength="4"><input name="exp" placeholder="MM / YY"></form>
+</section>
+
+<section data-want="none" data-note="promo and gift card codes">
+  <form><input name="promo" placeholder="Promo code"><input name="gift" placeholder="Gift card code"><input name="ref" placeholder="Referral code"></form>
+</section>
+
+<section data-want="none" data-note="zip, postal and phone">
+  <form><input name="zip" placeholder="ZIP code" inputmode="numeric" maxlength="5"><input name="postcode" placeholder="Postcode"><input type="tel" name="phone" placeholder="Phone number"></form>
+</section>
+
+<section data-want="none" data-note="search box">
+  <form role="search"><input type="search" name="q" placeholder="Search"></form>
+</section>
+
+<section data-want="none" data-note="a numeric quantity box in a form that never mentions a code">
+  <form><h3>Your cart</h3><label>Quantity <input type="text" inputmode="numeric" maxlength="4" value="1"></label></form>
+</section>
+
+<section data-want="none" data-note="a hidden code box">
+  <form><input name="otp" autocomplete="one-time-code" style="display:none"></form>
+</section>
+
+<section data-want="none" data-note="a disabled code box">
+  <form><input name="otp" autocomplete="one-time-code" disabled></form>
+</section>
+
+<section data-want="none" data-note="a coupon form that mentions verification">
+  <form><h3>Verify your discount</h3><input name="coupon" placeholder="Coupon"></form>
+</section>
+
+<section data-want="none" data-note="four single-letter boxes for initials, nothing about a code">
+  <div class="row"><input maxlength="1" name="i1"><input maxlength="1" name="i2"><input maxlength="1" name="i3"></div>
+</section>
+
+<script>
+  customElements.define("otp-field", class extends HTMLElement {
+    connectedCallback() {
+      const r = this.attachShadow({ mode: "open" });
+      const i = document.createElement("input");
+      i.setAttribute("autocomplete", "one-time-code");
+      i.setAttribute("aria-label", "Security code");
+      i.setAttribute("data-hit", "");
+      r.append(i);
+    }
+  });
+</script>
+</body>
+</html>

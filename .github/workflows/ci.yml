@@ -10,8 +10,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node --test tests/core.test.js
+      - run: node --test tests/core.test.js tests/google.test.js
       - run: python3 -m unittest discover -s tests -p "test_*.py"
+      - name: End to end in Firefox
+        run: FIREFOX=$(command -v firefox) node tools/e2e.mjs
       - name: Lint the Firefox package
         run: |
           python3 tools/build.py
