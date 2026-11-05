@@ -1,0 +1,19 @@
+name: CI
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test tests/core.test.js
+      - run: python3 -m unittest discover -s tests -p "test_*.py"
+      - name: Lint the Firefox package
+        run: |
+          python3 tools/build.py
+          mkdir -p build/firefox && cd build/firefox && unzip -q ../../dist/pocketcodes-*-firefox.zip
+          npx -y web-ext@8.3.0 lint --source-dir . --self-hosted

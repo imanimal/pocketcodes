@@ -11,6 +11,7 @@
     "gecko": {
       "id": "codes@imanimal.github.io",
       "strict_min_version": "128.0",
+      "update_url": "https://github.com/imanimal/pocketcodes/releases/latest/download/updates.json",
       "data_collection_permissions": { "required": ["authenticationInfo", "personalCommunications"] }
     }
   },

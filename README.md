@@ -12,7 +12,7 @@ PocketCodes only reads mail: Gmail with `gmail.readonly`, Outlook with `Mail.Rea
 
 ## Install
 
-Firefox: `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…** → this folder's `manifest.json` (or `dist/pocketcodes-<version>-firefox.zip`). A temporary add-on stays until Firefox restarts; a permanent install needs the package signed on addons.mozilla.org.
+Firefox: open the `.xpi` attached to the [latest release](https://github.com/imanimal/pocketcodes/releases/latest) in Firefox (128 or newer). It updates itself from the releases. To try a local change instead: `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…** → this folder's `manifest.json` (it stays until Firefox restarts).
 
 Chrome: `chrome://extensions` → Developer mode → **Load unpacked** → this folder.
 
@@ -54,3 +54,5 @@ python tools/build.py
 ```
 
 `tools/build.py` writes `dist/pocketcodes-<version>-firefox.zip` and `-chrome.zip`. `tools/gen_icons.py` redraws the icons.
+
+Release: `python tools/build.py --bump 0.2.0`, commit, tag `v0.2.0`, push the tag. The workflow signs the Firefox package as an unlisted add-on (repository secrets `AMO_JWT_ISSUER` and `AMO_JWT_SECRET` from addons.mozilla.org) and publishes the `.xpi`, `updates.json` and the Chrome zip. Installed copies check `updates.json` once a day.

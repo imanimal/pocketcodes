@@ -1,0 +1,46 @@
+# Push a tag like v0.2.0 (after `python tools/build.py --bump 0.2.0`) to publish a release.
+# Firefox installs only signed add-ons, so this signs the Firefox package as an unlisted add-on on addons.mozilla.org
+# (free; it isn't listed in the store) and attaches the signed .xpi, updates.json and the Chrome zip to the release.
+# Installed copies poll updates.json (manifest.json's update_url) and update themselves.
+# Needs two repository secrets from https://addons.mozilla.org/developers/addon/api/key/ :
+#   AMO_JWT_ISSUER, AMO_JWT_SECRET
+name: Release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test tests/core.test.js
+      - run: python3 -m unittest discover -s tests -p "test_*.py"
+      - name: Check the tag matches manifest.json
+        run: |
+          v=$(node -p "require('./manifest.json').version")
+          test "v$v" = "${GITHUB_REF_NAME}" || { echo "Tag ${GITHUB_REF_NAME} but manifest.json says $v"; exit 1; }
+      - name: Build
+        run: |
+          python3 tools/build.py --updates
+          mkdir -p build/firefox && cd build/firefox && unzip -q ../../dist/pocketcodes-*-firefox.zip
+      - name: Sign (unlisted)
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          npx -y web-ext@8.3.0 sign --channel unlisted --source-dir build/firefox \
+            --artifacts-dir web-ext-artifacts --approval-timeout 900000
+          v=$(node -p "require('./manifest.json').version")
+          mv web-ext-artifacts/*.xpi "dist/pocketcodes-$v.xpi"
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=$(node -p "require('./manifest.json').version")
+          gh release create "${GITHUB_REF_NAME}" "dist/pocketcodes-$v.xpi" dist/updates.json "dist/pocketcodes-$v-chrome.zip" \
+            --title "PocketCodes $v" --notes "Install: open the .xpi below in Firefox. Installed copies update themselves." --latest

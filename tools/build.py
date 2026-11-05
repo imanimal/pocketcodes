@@ -2,17 +2,23 @@
 
     python tools/build.py              dist/pocketcodes-<version>-firefox.zip and -chrome.zip, the unsigned extension
                                        (load the Firefox one in about:debugging, or sign it on addons.mozilla.org)
+    python tools/build.py --updates    also dist/updates.json, the update manifest Firefox polls
+                                       (manifest.json's update_url points at the latest release's copy)
     python tools/build.py --bump 0.2.0 set the version in manifest.json first
 
 The Firefox package drops the manifest's `key` (Chrome's ID pin, which addons.mozilla.org's linter rejects) and
 the `service_worker` line Firefox doesn't run. The Chrome package drops `background.scripts` and
-`browser_specific_settings`. The IMAP helper (host/) isn't packaged: it's installed from this folder."""
+`browser_specific_settings`. The IMAP helper (host/) isn't packaged: it's installed from this folder.
+
+Releases are built by .github/workflows/release.yml, which has Mozilla sign the Firefox package as an unlisted
+add-on and attaches the .xpi, updates.json and the Chrome zip to the GitHub release."""
 import argparse
 import json
 import os
 import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO = "imanimal/pocketcodes"
 INCLUDE = ["LICENSE", "src", "icons"]
 
 
@@ -60,8 +66,24 @@ def package(dist, browser):
     return out
 
 
+def updates(dist):
+    m = manifest()
+    gecko = m["browser_specific_settings"]["gecko"]
+    v = m["version"]
+    doc = {"addons": {gecko["id"]: {"updates": [{
+        "version": v,
+        "update_link": f"https://github.com/{REPO}/releases/download/v{v}/pocketcodes-{v}.xpi",
+        "applications": {"gecko": {"strict_min_version": gecko.get("strict_min_version", "128.0")}},
+    }]}}}
+    out = os.path.join(dist, "updates.json")
+    with open(out, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(doc, f, indent=2)
+    print(out)
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--updates", action="store_true")
     ap.add_argument("--bump")
     a = ap.parse_args()
     if a.bump:
@@ -70,6 +92,8 @@ def main():
     os.makedirs(dist, exist_ok=True)
     for browser in ("firefox", "chrome"):
         package(dist, browser)
+    if a.updates:
+        updates(dist)
 
 
 if __name__ == "__main__":

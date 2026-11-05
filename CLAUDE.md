@@ -30,6 +30,8 @@ python -m unittest discover -s tests -p "test_*.py"
 python tools/build.py
 ```
 
+Releases are tag-driven (`.github/workflows/release.yml`): `python tools/build.py --bump X.Y.Z`, commit, tag `vX.Y.Z`, push the tag; it signs the built Firefox package unlisted on AMO (secrets `AMO_JWT_ISSUER`, `AMO_JWT_SECRET`) and publishes the `.xpi`, `updates.json` and the Chrome zip. Installed copies self-update through the manifest's `update_url`, which only works while the repo is public.
+
 Try it: Firefox `about:debugging` → Load Temporary Add-on → `manifest.json`; Chrome `chrome://extensions` → Developer mode → Load unpacked → this folder. Then `python host/install_host.py` for iCloud/IMAP. The sign-in flows need real accounts and a Google Cloud OAuth client, so they can't be tested offline; everything else has tests with a fake `fetch`, a fake IMAP server, or recorded response shapes.
 
 ## Layout
