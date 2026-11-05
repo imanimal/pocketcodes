@@ -12,14 +12,23 @@ Requests are { id, op, ... }; answers are { re: id, ok: true, ... } or { re: id,
   add     { acct, host, port, user, email, password }  checks the login, keeps the password -> { user }
   remove  { acct }                              forgets the account and its password
   poll    { acct, since, limit }                -> { messages: [{ key, from, subject, text, html?, at }] }
-A message's key is i:<acct>:<uidvalidity>:<uid>; `html` is sent only when a message has no plain-text part."""
+  totp-add { acct, secret, digits?, period?, algo? }  checks the authenticator key, keeps it -> { code, left }
+  totp    { acct }                              -> { code, left } the authenticator's code now, seconds it has left
+  texts   { since, limit }                      -> { messages } the Mac's own Messages (texts the iPhone forwards)
+A message's key is i:<acct>:<uidvalidity>:<uid> (t:<rowid> for a text); `html` is sent only when a message has no
+plain-text part. An authenticator key is kept in the vault like a password and never sent back: only its codes are.
+Texts are read from ~/Library/Messages/chat.db, opened read-only, which macOS allows only once the helper's Python
+has Full Disk Access; hello's `texts` says whether this machine can do it at all."""
 import base64
 import email
+import hashlib
+import hmac
 import imaplib
 import json
 import os
 import platform
 import re
+import sqlite3
 import ssl
 import struct
 import subprocess
@@ -28,7 +37,7 @@ import threading
 import time
 from email import policy
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 NAME = "io.github.imanimal.pocketcodes"
 TEXT_CAP = 16000      # characters of a body passed on; a code is never further in than this
 SCAN = 60             # newest UIDs looked at per poll, before the date filter
@@ -241,6 +250,87 @@ class Mailbox:
         return out
 
 
+# ── authenticator codes (RFC 6238) ──
+
+ALGOS = {"SHA1": hashlib.sha1, "SHA256": hashlib.sha256, "SHA512": hashlib.sha512}
+
+
+def b32key(secret):
+    """The bytes of a base32 authenticator key, however it was typed (spaces, dashes, lower case, no padding)."""
+    s = re.sub(r"[\s-]+", "", str(secret or "")).upper().rstrip("=")
+    if not s or not re.fullmatch(r"[A-Z2-7]+", s):
+        raise Fail("That isn't an authenticator key: it should be letters A to Z and digits 2 to 7.")
+    key = base64.b32decode(s + "=" * (-len(s) % 8))
+    if len(key) < 10:
+        raise Fail("That key is too short for an authenticator. Copy the whole key the site shows.")
+    return key
+
+
+def totp(key, at=None, digits=6, period=30, algo="SHA1"):
+    """(code, seconds left) for `key` at time `at` (now)."""
+    at = time.time() if at is None else at
+    mac = hmac.new(key, struct.pack(">Q", int(at // period)), ALGOS.get(algo, hashlib.sha1)).digest()
+    o = mac[-1] & 0x0F
+    n = (struct.unpack(">I", mac[o:o + 4])[0] & 0x7FFFFFFF) % (10 ** digits)
+    return str(n).zfill(digits), int(period - at % period)
+
+
+# ── texts on a Mac ──
+
+APPLE_EPOCH = 978307200  # 2001-01-01 in Unix seconds, where Messages counts from
+
+
+def chat_db():
+    return os.environ.get("POCKETCODES_CHATDB") or os.path.expanduser("~/Library/Messages/chat.db")
+
+
+def body_text(blob):
+    """The text in a message's attributedBody (an archived NSAttributedString), for messages whose `text` is empty."""
+    if not blob:
+        return ""
+    i = blob.find(b"NSString")
+    j = blob.find(b"+", i) if i >= 0 else -1
+    if j < 0 or j + 2 > len(blob):
+        return ""
+    n, k = blob[j + 1], j + 2
+    if n == 0x81:  # a longer string: the length follows in two bytes
+        n, k = int.from_bytes(blob[k:k + 2], "little"), k + 2
+    return blob[k:k + n].decode("utf-8", "replace")
+
+
+def read_texts(since, limit):
+    path = chat_db()
+    if SYSTEM != "Darwin" and not os.environ.get("POCKETCODES_CHATDB"):
+        raise Fail("Texts can only be read on a Mac (Messages with Text Message Forwarding from your iPhone).", code="not-mac")
+    try:
+        db = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error as e:
+        raise Fail(f"Couldn't open Messages ({_short(e)}).")
+    try:
+        newest = db.execute("SELECT MAX(date) FROM message").fetchone()[0] or 0
+        # Messages has counted in nanoseconds since macOS 10.13, in seconds before that
+        scale = 1e9 if newest > 1e12 else 1
+        rows = db.execute(
+            "SELECT m.ROWID, m.text, m.attributedBody, m.date, h.id FROM message m LEFT JOIN handle h ON h.ROWID = m.handle_id"
+            " WHERE m.is_from_me = 0 AND m.date >= ? ORDER BY m.date DESC LIMIT ?",
+            (int((since / 1000 - APPLE_EPOCH) * scale), limit)).fetchall()
+    except sqlite3.Error as e:
+        if re.search(r"unable to open|authoriz|not permitted|no such table", str(e), re.I):
+            # macOS asks about the app that started the helper (the browser), not the helper's own Python
+            raise Fail("macOS isn't letting PocketCodes read Messages yet. System Settings → Privacy & Security → "
+                       "Full Disk Access → turn on your browser (Firefox), restart it, then check again.", code="no-access")
+        raise Fail(f"Couldn't read Messages ({_short(e)}).")
+    finally:
+        db.close()
+    out = []
+    for rowid, text, blob, date, sender in rows:
+        body = text or body_text(blob)
+        if body:
+            out.append({"key": f"t:{rowid}", "from": sender or "Text message", "subject": "", "text": body[:TEXT_CAP],
+                        "at": int((date / scale + APPLE_EPOCH) * 1000)})
+    return out
+
+
 def _short(e):
     s = e.args[0] if getattr(e, "args", None) else e
     s = s.decode("utf-8", "replace") if isinstance(s, bytes) else str(s)
@@ -270,7 +360,28 @@ class Helper:
     def handle(self, req):
         op = req.get("op")
         if op == "hello":
-            return {"version": VERSION, "os": {"Darwin": "macOS"}.get(SYSTEM, SYSTEM), "data": data_dir()}
+            return {"version": VERSION, "os": {"Darwin": "macOS"}.get(SYSTEM, SYSTEM), "data": data_dir(),
+                    "texts": SYSTEM == "Darwin", "totp": True}
+        if op == "totp-add":
+            acct = str(req.get("acct") or "")
+            conf = {"secret": base64.b32encode(b32key(req.get("secret"))).decode("ascii"),
+                    "digits": int(req.get("digits") or 6), "period": int(req.get("period") or 30),
+                    "algo": str(req.get("algo") or "SHA1").upper()}
+            if not acct.startswith("totp:") or conf["digits"] not in (6, 7, 8) or conf["algo"] not in ALGOS or not 10 <= conf["period"] <= 120:
+                raise Fail("That authenticator setting isn't one PocketCodes can make codes for.")
+            self.vault.put(acct, json.dumps(conf))
+            code, left = totp(b32key(conf["secret"]), None, conf["digits"], conf["period"], conf["algo"])
+            return {"code": code, "left": left}
+        if op == "totp":
+            raw = self.vault.get(str(req.get("acct") or ""))
+            if not raw:
+                raise Fail("The helper doesn't have this authenticator's key. Remove it and add it again.", auth=True)
+            conf = json.loads(raw)
+            code, left = totp(b32key(conf["secret"]), None, conf["digits"], conf["period"], conf["algo"])
+            return {"code": code, "left": left}
+        if op == "texts":
+            since = int(req.get("since") or (time.time() - 1800) * 1000)
+            return {"messages": read_texts(since, max(1, min(50, int(req.get("limit") or 20))))}
         if op == "add":
             return self.add(req)
         if op == "remove":

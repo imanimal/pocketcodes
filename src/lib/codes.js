@@ -158,5 +158,33 @@
   /** The best code in { subject, text }, or null. */
   function find(msg) { return all(msg)[0] || null; }
 
-  PC.codes = { htmlToText, clean, all, find };
+  /** A site as a bare host name: "https://www.GitHub.com/login" → "github.com". "" when it isn't one. */
+  function site(text) {
+    const s = String(text || "").trim().toLowerCase().replace(/^[a-z][a-z0-9+.-]*:\/\//, "").split(/[/?#:]/)[0].replace(/^www\./, "");
+    return /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(s) ? s : "";
+  }
+
+  /** Whether a page on `host` is the site an authenticator was added for (the same host, or a subdomain of it). */
+  const sameSite = (host, s) => !!s && (host === s || String(host).endsWith("." + s));
+
+  /** What an authenticator app would read from a site's QR code: an otpauth://totp/… link, or a bare key.
+      Returns { secret, issuer, name, digits, period, algo }, or null when the text is neither. */
+  function otpauth(text) {
+    const t = String(text || "").trim();
+    if (/^otpauth:\/\//i.test(t)) {
+      let u;
+      try { u = new URL(t); } catch (e) { return null; }
+      if (u.hostname.toLowerCase() !== "totp") return null;
+      const q = u.searchParams;
+      const label = decodeURIComponent(u.pathname.replace(/^\//, ""));
+      const [pre, rest] = label.includes(":") ? [label.slice(0, label.indexOf(":")), label.slice(label.indexOf(":") + 1)] : ["", label];
+      const secret = (q.get("secret") || "").replace(/[\s-]+/g, "").toUpperCase();
+      if (!/^[A-Z2-7]+=*$/.test(secret)) return null;
+      return { secret, issuer: (q.get("issuer") || pre).trim(), name: rest.trim(), digits: Number(q.get("digits")) || 6, period: Number(q.get("period")) || 30, algo: (q.get("algorithm") || "SHA1").toUpperCase() };
+    }
+    const secret = t.replace(/[\s-]+/g, "").toUpperCase();
+    return /^[A-Z2-7]{16,}=*$/.test(secret) ? { secret, issuer: "", name: "", digits: 6, period: 30, algo: "SHA1" } : null;
+  }
+
+  PC.codes = { htmlToText, clean, all, find, site, sameSite, otpauth };
 })(globalThis);

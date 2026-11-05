@@ -8,7 +8,10 @@
    tel/number type, 4 to 8 long) that is the only one in its form or dialog and that form's own text asks for a code;
    or four to ten one-character (or narrow numeric) inputs in a row, the split boxes many sites draw. Open shadow
    roots are searched too. Filling goes through the input's native setter and fires input and change events, so
-   React, Vue and plain forms all see it. Nothing read here leaves the page. */
+   React, Vue and plain forms all see it.
+   channel(target) says how the page sent the code, from the box's own attributes and then the text around it (the
+   largest block around the box under 1500 characters): "email", "sms" (a text to a phone) or "app" (an
+   authenticator), whichever the text names first, or "" when it doesn't say. Nothing read here leaves the page. */
 (function (g) {
   const PC = (g.PC = g.PC || {});
   if (PC.fill) return;
@@ -19,6 +22,13 @@
   // what the form around a bare numeric box has to say, and what rules it out
   const ASK = /\b(?:(?:\d|four|six|eight) digit|code|otp|passcode|one time|verif\w*|two (?:factor|step)|2fa|authenticat\w*)\b/i;
   const NOT_ASK = /\b(?:promo|coupon|discount|gift|referral|voucher|card number|zip|postal|quantity)\b/i;
+
+  // how the code was sent. Bare "phone" and "mobile" aren't enough ("your phone's authenticator app", "mobile app")
+  const VIA = {
+    email: /\b(?:e ?mail(?:ed)?|inbox)\b|[^\s@]+@[^\s@]+\.[a-z]{2,}/i,
+    sms: /\b(?:sms|texted|text(?:ed)? (?:message|you)|(?:a|by|via) text|sent (?:\w+ ){0,5}to (?:your )?(?:phone|mobile|cell)|(?:phone|mobile|cell)(?: phone)? number|(?:phone|number) ending)\b|(?:\+\d{1,3}[\s.-]?)?\(?[•*x]{3}\)?[\s.-]?[•*x]{3}[\s.-]?[•*x]{0,2}\d{2,4}\b/i,
+    app: /\b(?:authenticator|authentication app|auth app|authy|duo mobile|totp|code generator|(?:your|the|an?) (?:\w+ ){0,2}(?:security |authentication |2fa |mfa |verification )?app\b(?! store))/i,
+  };
 
   const norm = (s) => String(s || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_\-.[\]:]+/g, " ").toLowerCase();
 
@@ -40,10 +50,21 @@
 
   const numeric = (el) => (el.getAttribute("inputmode") || "").toLowerCase() === "numeric" || /\[0-9\]|\\d/.test(el.getAttribute("pattern") || "") || /^(tel|number)$/i.test(el.getAttribute("type") || "");
 
+  /** An element's text with a space between its pieces ("Check your email" + "Enter the code" stay two phrases),
+      without scripts and styles, cut off a little past 1500 characters. */
+  function textOf(n) {
+    const w = n.ownerDocument.createTreeWalker(n, 4 /* text nodes */);
+    let s = "", x;
+    while ((x = w.nextNode()) && s.length <= 1600) {
+      if (!/^(?:SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/.test(x.parentNode.nodeName)) s += " " + x.nodeValue;
+    }
+    return s.replace(/\s+/g, " ").trim();
+  }
+
   /** The form, dialog or section a box sits in, and its text (capped), for a box that says nothing about itself. */
   function around(el) {
     const box = el.closest("form, [role=dialog], dialog, section, fieldset") || (el.parentElement && el.parentElement.parentElement);
-    return box ? [box, norm(String(box.textContent || "").slice(0, 800))] : [null, ""];
+    return box ? [box, norm(textOf(box).slice(0, 800))] : [null, ""];
   }
 
   /** Every input under root, through open shadow roots. */
@@ -104,6 +125,33 @@
     });
   }
 
+  /** The text of the largest block around the target that holds no other text box and stays under 1500 characters
+      (its heading and help text, but not a newsletter form in the footer). */
+  function context(t) {
+    const mine = t.el ? [t.el] : t.els;
+    // up through the elements, and out of a shadow root to its host
+    const up = (x) => x.parentElement || (x.parentNode && x.parentNode.host) || null;
+    let best = "", n = up(mine[0]);
+    for (let i = 0; i < 8 && n && n !== mine[0].ownerDocument.documentElement; i++, n = up(n)) {
+      const text = textOf(n);
+      if (text.length > 1500 || [...n.querySelectorAll("input")].some((x) => !mine.includes(x) && usable(x))) break;
+      best = text;
+    }
+    return best;
+  }
+
+  /** "email", "sms" or "app": the one the text names first. Bare words in the box's attributes win outright. */
+  function channel(t) {
+    const el = t.el || t.els[0];
+    const first = (text) => {
+      let pick = "", at = Infinity;
+      for (const k in VIA) { const m = VIA[k].exec(text); if (m && m.index < at) { pick = k; at = m.index; } }
+      return pick;
+    };
+    const own = norm([el.name, el.id, el.placeholder, el.getAttribute("aria-label"), labelText(el)].join(" "));
+    return first(own.replace(/\b(?:email|sms|text|app)\b/g, (w) => ({ email: "email", sms: "sms", text: "text message", app: "authenticator" })[w])) || first(context(t));
+  }
+
   function setVal(el, value) {
     el.focus();
     const proto = el instanceof g.HTMLTextAreaElement ? g.HTMLTextAreaElement.prototype : g.HTMLInputElement.prototype;
@@ -131,5 +179,5 @@
     return true;
   }
 
-  PC.fill = { find, fill, visible, isCodeBox, setVal };
+  PC.fill = { find, fill, visible, isCodeBox, setVal, channel };
 })(globalThis);

@@ -4,7 +4,7 @@
    script (on every page, from the manifest) only read storage and send it messages (below). A check runs on the alarm
    (settings.every minutes), at startup, on "Check now", and every few seconds while a popup is open or a page is waiting for a code. */
 if (typeof importScripts === "function") {
-  importScripts("lib/util.js", "lib/client.js", "lib/codes.js", "lib/google.js", "lib/microsoft.js", "lib/imap.js", "lib/inbox.js");
+  importScripts("lib/util.js", "lib/client.js", "lib/codes.js", "lib/google.js", "lib/microsoft.js", "lib/imap.js", "lib/texts.js", "lib/inbox.js");
 }
 (function (g) {
   const PC = g.PC;
@@ -39,10 +39,17 @@ if (typeof importScripts === "function") {
     return { ok: true };
   }
 
-  /** Fills a code (default: the newest fresh one) into the active tab's code boxes. */
-  async function fillTab(tabId, id) {
-    const codes = await PC.store.get("codes", []);
-    const c = id ? codes.find((x) => x.id === id) : await PC.inbox.newest(codes);
+  /** Fills a code (default: the newest fresh one; `totp`: that authenticator's code now) into the active tab's code boxes. */
+  async function fillTab(tabId, id, totp) {
+    let c;
+    if (totp) {
+      const [t] = await PC.inbox.totpCodes({ id: totp });
+      if (!t || !t.code) return { ok: false, reason: (t && t.error) || "That authenticator is gone." };
+      c = { code: t.code };
+    } else {
+      const codes = await PC.store.get("codes", []);
+      c = id ? codes.find((x) => x.id === id) : await PC.inbox.newest(codes);
+    }
     if (!c) return { ok: false, reason: "No fresh code to fill." };
     if (tabId == null) {
       const [tab] = await api.tabs.query({ active: true, currentWindow: true });
@@ -57,7 +64,7 @@ if (typeof importScripts === "function") {
       return { ok: false, reason: "This page doesn't let extensions in." };
     }
     if (!results.some((r) => r && r.result)) return { ok: false, reason: "No code box on this page.", code: c.code };
-    await PC.inbox.mark("used", [c.id]);
+    if (c.id) await PC.inbox.mark("used", [c.id]);
     return { ok: true, code: c.code };
   }
 
@@ -68,18 +75,30 @@ if (typeof importScripts === "function") {
     remove: (m) => PC.inbox.removeAccount(m.id).then(() => ({ ok: true })),
     seen: () => PC.inbox.mark("seen", "all").then(() => ({ ok: true })),
     used: (m) => PC.inbox.mark("used", [m.id]).then(() => ({ ok: true })),
-    fill: (m) => fillTab(m.tabId, m.id),
+    fill: (m) => fillTab(m.tabId, m.id, m.totp),
+    addTexts: () => PC.inbox.addTexts().then((a) => ({ ok: true, account: a })),
+    addTotp: (m) => PC.inbox.addTotp(m).then((r) => Object.assign({ ok: true }, r)),
+    removeTotp: (m) => PC.inbox.removeTotp(m.id).then(() => ({ ok: true })),
+    // a sign-in page gets only its own site's authenticator codes (the frame's address, not what it says); the
+    // popup and settings ask by id, or for all
+    totp: (m, page) => PC.inbox.totpCodes(page ? { host: new URL(page).hostname } : { id: m.id }).then((codes) => ({ ok: true, codes })),
     page: (m) => setPage(!!m.on),
     helper: () => PC.imap.status().then((r) => ({ ok: true, helper: r })),
     clear: () => PC.mutex("codes", () => PC.store.set("codes", [])).then(() => PC.inbox.badge()).then(() => ({ ok: true })),
     settings: () => schedule().then(() => PC.inbox.badge()).then(() => ({ ok: true })),
   };
 
+  // what the sign-in page script may ask for; the rest is for the extension's own pages
+  const FROM_PAGES = ["poll", "used", "totp"];
+  const ours = api.runtime.getURL("");
+
   // Chrome ignores a returned Promise, so answer with sendResponse and say so with `return true`.
   api.runtime.onMessage.addListener((m, sender, sendResponse) => {
     const h = m && handlers[m.type];
     if (!h) return false;
-    h(m).then(sendResponse, (e) => sendResponse({ error: String((e && e.message) || e), auth: !!(e && e.auth), code: e && e.code }));
+    const page = sender && sender.url && !sender.url.startsWith(ours) ? sender.url : null;
+    if (page && !FROM_PAGES.includes(m.type)) return false;
+    h(m, page).then(sendResponse, (e) => sendResponse({ error: String((e && e.message) || e), auth: !!(e && e.auth), code: e && e.code }));
     return true;
   });
 

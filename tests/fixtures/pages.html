@@ -7,6 +7,7 @@
      data-want="one"    one single code box (the input marked data-hit)
      data-want="split"  one row of split boxes (the inputs marked data-hit)
      data-want="none"   nothing at all
+     data-via="email|sms|app|"   and fill.js's channel() says the code came that way ("" when the page doesn't say)
      tests/fixtures/run.html loads this page in a frame and checks every section. -->
 <style>
   body { font: 14px system-ui; } section { border: 1px solid #ccc; margin: 8px; padding: 8px; }
@@ -15,7 +16,7 @@
 </head>
 <body>
 
-<section data-want="one" data-note="autocomplete one-time-code (GitHub style)">
+<section data-want="one" data-via="app" data-note="autocomplete one-time-code (GitHub style)">
   <form><label for="totp">Authentication code</label><input id="totp" name="app_otp" autocomplete="one-time-code" inputmode="numeric" maxlength="6" data-hit></form>
 </section>
 
@@ -35,7 +36,7 @@
   <form><input type="text" name="otpCode" id="input-box-otp" data-hit></form>
 </section>
 
-<section data-want="one" data-note="placeholder only (Discord style)">
+<section data-want="one" data-via="" data-note="placeholder only (Discord style)">
   <form><input type="text" placeholder="6-digit authentication code" data-hit></form>
 </section>
 
@@ -47,7 +48,7 @@
   <form><label>One-time passcode <input type="password" name="otp" data-hit></label></form>
 </section>
 
-<section data-want="one" data-note="bare numeric box, the form's heading says code">
+<section data-want="one" data-via="email" data-note="bare numeric box, the form's heading says code">
   <form><h2>Check your email</h2><p>Enter the 6-digit code we sent to you.</p><input type="text" inputmode="numeric" maxlength="6" data-hit><button>Verify</button></form>
 </section>
 
@@ -73,6 +74,44 @@
 
 <section data-want="one" data-note="a code box inside an open shadow root" data-shadow>
   <otp-field></otp-field>
+</section>
+
+<!-- how the code was sent: email, a text, or an authenticator app -->
+<section data-want="one" data-via="sms" data-note="a code sent to a masked mobile number (Amazon style)">
+  <div><h2>Verify it's you</h2><p>We've sent a One Time Password (OTP) to the mobile number +1 ***-***-0172. Please enter it below.</p>
+  <form><input name="code" autocomplete="one-time-code" data-hit><button>Submit</button></form></div>
+</section>
+
+<section data-want="one" data-via="sms" data-note="we texted a code to a dotted number">
+  <div><h2>Enter the code</h2><p>We texted a 6-digit code to (•••) •••-••12.</p><form><input type="text" inputmode="numeric" maxlength="6" aria-label="Code" data-hit></form></div>
+</section>
+
+<section data-want="one" data-via="sms" data-note="the box's own name says sms, the page says email elsewhere">
+  <div><p>Prefer email? Change it in settings.</p><form><input name="smsCode" maxlength="6" data-hit></form></div>
+</section>
+
+<section data-want="one" data-via="app" data-note="Google Authenticator prompt">
+  <div><h2>2-Step Verification</h2><p>Get a verification code from the Google Authenticator app</p><form><input type="tel" name="totpPin" aria-label="Enter code" data-hit></form></div>
+</section>
+
+<section data-want="one" data-via="app" data-note="Microsoft Authenticator prompt">
+  <div><h2>Enter code</h2><p>Enter the code displayed in the Microsoft Authenticator app on your mobile device</p><form><input type="tel" name="otc" placeholder="Code" data-hit></form></div>
+</section>
+
+<section data-want="one" data-via="email" data-note="email first, a text offered as the fallback">
+  <div><h2>Check your email</h2><p>We sent a code to j•••@example.com. Didn't get it? Send a text message instead.</p><form><input name="otp" maxlength="6" data-hit></form></div>
+</section>
+
+<section data-want="one" data-via="app" data-note="authenticator first, a text offered as the fallback">
+  <div><p>Open your authentication app and enter the code. Can't use it? Get a code by text.</p><form><input name="otp" maxlength="6" data-hit></form></div>
+</section>
+
+<section data-want="one" data-via="sms" data-note="a text first, the authenticator offered as the fallback">
+  <div><p>We sent a text message to your phone number ending in 34. Use your authenticator app instead.</p><form><input name="verification_code" maxlength="6" data-hit></form></div>
+</section>
+
+<section data-want="one" data-via="email" data-note="a phone's authenticator isn't mentioned; mobile app download link isn't a text">
+  <div><p>Enter the code we emailed you. Get our mobile app for faster sign-in.</p><form><input name="otp" maxlength="6" data-hit></form></div>
 </section>
 
 <!-- the quiet cases: none of these may be offered a code -->

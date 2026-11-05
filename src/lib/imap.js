@@ -41,7 +41,9 @@
       if (!w) return;
       pending.delete(m.re);
       clearTimeout(w.t);
-      if (m.error) w.rej(Object.assign(new Error(m.error), { auth: !!m.auth, code: m.code }));
+      // a helper installed before authenticators and texts existed doesn't know those requests
+      if (m.error && /^Unknown request/.test(m.error)) w.rej(Object.assign(new Error("The helper is older than this PocketCodes. Run python host/install_host.py again from the PocketCodes folder, then restart Firefox."), { code: "old-host" }));
+      else if (m.error) w.rej(Object.assign(new Error(m.error), { auth: !!m.auth, code: m.code }));
       else w.res(m);
     });
     p.onDisconnect.addListener((gone) => {

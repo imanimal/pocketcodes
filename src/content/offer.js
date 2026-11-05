@@ -5,6 +5,10 @@
    with a Fill key the moment the email lands. In "fill it for me" mode it fills the box instead. Only a tab you're
    looking at shows or fills a code, so a box left open in the background never uses one up. Escape or × puts the
    chip away: for that code, or while waiting, until a code arrives or a new box appears.
+   It goes by how the page says it sent the code (fill.js's channel): an email (or a page that doesn't say) gets the
+   inboxes' codes; a text gets only codes from texts, and no chip at all unless texts reach PocketCodes (a Mac's
+   Messages, or forwarding to an inbox); an authenticator app gets this site's authenticator code, if one was added,
+   and never a wait. The background answers that from the frame's own address, so a page only sees its own site's.
    Nothing on the page is read except the boxes and the text of the form around them (fill.js), and nothing from the
    page is sent anywhere. All a page can see is the host element and its data-state (waiting, idle or code). */
 (function (g) {
@@ -16,10 +20,10 @@
   const doc = g.document;
   const WINDOW = 36; // fast checks per code box: every 5 s for 3 minutes
   let host = null, shadow = null, chip = null, lcd = null, label = null, sub = null, key = null;
-  let targets = [], target = null, offer = null, state = "off", settings = PC.DEFAULTS;
+  let targets = [], target = null, via = "", offer = null, state = "off", settings = PC.DEFAULTS;
   const dismissed = new Set();
   const filledAuto = new Set();
-  let waitDismissed = false, checking = false, armedAt = 0, ticks = 0, timer = 0, scanTimer = 0, raf = 0;
+  let waitDismissed = false, checking = false, armedAt = 0, ticks = 0, timer = 0, scanTimer = 0, raf = 0, totpTimer = 0, totpUsed = false;
 
   // a small Pocket device: graphite body, the code on an LCD, an orange Fill key (the page's fonts and colours can't
   // reach into the closed shadow root, and the extension's own fonts aren't exposed to pages, so system monospace)
@@ -123,7 +127,7 @@
     lcd.classList.toggle("busy", next === "waiting");
     if (next === "code") {
       label.textContent = group(offer.code);
-      sub.textContent = `${offer.from} · ${offer.email} · ${PC.ago(offer.at)}`;
+      sub.textContent = offer.totp ? `${offer.from} · authenticator · ${offer.left} s left` : `${offer.from} · ${offer.email} · ${PC.ago(offer.at)}`;
       key.textContent = "Fill";
       key.hidden = false;
     } else {
@@ -140,7 +144,8 @@
   function use() {
     if (!offer || !target) return false;
     if (!PC.fill.fill(offer.code, [target])) return false;
-    api.runtime.sendMessage({ type: "used", id: offer.id }).catch(() => {});
+    if (offer.totp) { totpUsed = true; clearTimeout(totpTimer); } // the box has it: no next code over the top of it
+    else api.runtime.sendMessage({ type: "used", id: offer.id }).catch(() => {});
     dismissed.add(offer.id);
     offer = null;
     waitDismissed = true; // the box has its code: nothing more to wait for until a new box appears
@@ -149,19 +154,46 @@
     return true;
   }
   function dismiss() {
-    if (state === "code" && offer) dismissed.add(offer.id);
-    else waitDismissed = true;
+    if (state === "code" && offer) {
+      dismissed.add(offer.id);
+      if (offer.totp) { totpUsed = true; clearTimeout(totpTimer); } // and its next codes, for this box
+    } else waitDismissed = true;
     offer = null;
     show("off");
+  }
+
+  /** Whether codes for this box can still arrive by themselves, so a wait is worth showing (and checking for). */
+  async function canWait() {
+    if (via === "app") return false;
+    const accounts = await PC.store.get("accounts", []);
+    if (via === "sms") return settings.forward || accounts.some((a) => a.kind === "texts");
+    return accounts.some((a) => a.kind !== "texts");
+  }
+
+  /** This site's authenticator code now, as an offer, or null. */
+  async function totpOffer() {
+    clearTimeout(totpTimer);
+    const r = await api.runtime.sendMessage({ type: "totp" }).catch(() => null);
+    const t = r && r.codes && r.codes.find((x) => x.code);
+    if (!t) return null;
+    // a new code every period: look again as this one runs out
+    totpTimer = setTimeout(() => refresh().catch(() => {}), (t.left + 0.5) * 1000);
+    return { id: `${t.id}:${t.code}`, code: t.code, from: t.name, left: t.left, totp: true };
   }
 
   async function refresh() {
     settings = await PC.store.settings();
     // only the tab you're looking at takes a code: a box left open in a background tab mustn't use it up
-    if (!settings.page || !targets.length || doc.visibilityState !== "visible") { offer = null; show("off"); return; }
-    const codes = await PC.store.get("codes", []);
+    if (!settings.page || !targets.length || doc.visibilityState !== "visible") { offer = null; clearTimeout(totpTimer); show("off"); return; }
     const now = Date.now();
-    offer = codes.find((c) => !c.used && !dismissed.has(c.id) && now - c.at < settings.fresh * PC.MIN) || null;
+    if (via === "app") offer = totpUsed ? null : await totpOffer();
+    else {
+      // a text prompt takes only codes that came by text; an email prompt only codes that came by email
+      const codes = await PC.store.get("codes", []);
+      offer = codes.find((c) => !c.used && !dismissed.has(c.id) && now - c.at < settings.fresh * PC.MIN
+        && (via === "sms" ? c.via === "sms" : via === "email" ? c.via !== "sms" : true)) || null;
+    }
+    if (offer && dismissed.has(offer.id)) offer = null;
     if (offer) {
       if (settings.fill === "auto" && !filledAuto.has(offer.id)) {
         filledAuto.add(offer.id);
@@ -170,8 +202,7 @@
       show("code");
       return;
     }
-    const accounts = await PC.store.get("accounts", []);
-    show(accounts.length && !waitDismissed ? (checking ? "waiting" : "idle") : "off");
+    show(!waitDismissed && (await canWait()) ? (checking ? "waiting" : "idle") : "off");
   }
 
   /** Fast checks while a code box is on screen, so the code shows up as soon as the email does. */
@@ -200,10 +231,12 @@
     targets = settings.page ? PC.fill.find() : [];
     const active = doc.activeElement;
     target = targets.find((t) => (t.el || null) === active || (t.els && t.els.includes(active))) || targets[0] || null;
+    via = target ? PC.fill.channel(target) : "";
     // a box that wasn't there before (the next step of a sign-in) starts a fresh wait
     if (targets.length && !before.length) {
       waitDismissed = false;
-      if ((await PC.store.get("accounts", [])).length) arm();
+      totpUsed = false;
+      if (await canWait()) arm();
     }
     if (!targets.length) stop();
     await refresh();
@@ -218,7 +251,7 @@
   g.addEventListener("resize", schedulePlace);
   api.storage.onChanged.addListener((ch, area) => {
     if (area !== "local") return;
-    if (ch.settings || ch.accounts) later();
+    if (ch.settings || ch.accounts || ch.authenticators) later();
     else if (ch.codes) refresh().catch(() => {});
   });
   scan().catch(() => {});

@@ -1,7 +1,9 @@
 /* PocketCodes: the settings page (opens in a tab, and on install). Reads storage; the background script does every
    account write, so adding, signing in again and removing are messages. The pages write only settings, google and
    microsoft. It leads with three steps (add inboxes, turn on codes on sign-in pages, the fill key); your own Google
-   client, Outlook and the IMAP helper's details sit under Advanced. #welcome, #icloud and #helper jump to their part. */
+   client, Outlook and the IMAP helper's details sit under Advanced. "Texts and authenticator apps" adds authenticator
+   keys (straight to the helper's vault) and the two free ways for texts to reach PocketCodes. #welcome, #icloud,
+   #helper and #more jump to their part. */
 (function (g) {
   const PC = g.PC;
   const api = PC.api;
@@ -11,17 +13,17 @@
   // the built-in Google client (client.js) works only where Firefox's loopback redirect does
   const builtIn = !!(PC.CLIENT && PC.CLIENT.google.id && PC.CLIENT.google.secret && /\.extensions\.allizom\.org\//.test(redirect));
   const CMD = "python host/install_host.py";
-  let S = { accounts: [], settings: PC.DEFAULTS, google: {}, microsoft: {}, st: {}, meta: {}, codes: [] };
+  let S = { accounts: [], settings: PC.DEFAULTS, google: {}, microsoft: {}, st: {}, meta: {}, codes: [], auth: [] };
   let ui = { addImap: g.location.hash === "#icloud", preset: "icloud", note: "", noteBad: false, helper: null, armed: null, working: null, open: g.location.hash === "#helper" ? "helper" : null };
 
   /** Whether the browser still lets the sign-in page script run (you can take its site access away in the add-ons page). */
   const siteAccess = () => (api.permissions && api.permissions.contains ? api.permissions.contains({ origins: ["<all_urls>"] }).catch(() => true) : Promise.resolve(true));
 
   async function load() {
-    const r = await api.storage.local.get(["accounts", "settings", "google", "microsoft", "meta", "codes"]);
+    const r = await api.storage.local.get(["accounts", "settings", "google", "microsoft", "meta", "codes", "authenticators"]);
     const accounts = r.accounts || [];
     const st = await api.storage.local.get(accounts.map((a) => "st:" + a.id));
-    S = { accounts, settings: Object.assign({}, PC.DEFAULTS, r.settings || {}), google: r.google || {}, microsoft: r.microsoft || {}, st, meta: r.meta || {}, codes: r.codes || [], access: await siteAccess() };
+    S = { accounts, settings: Object.assign({}, PC.DEFAULTS, r.settings || {}), google: r.google || {}, microsoft: r.microsoft || {}, st, meta: r.meta || {}, codes: r.codes || [], auth: r.authenticators || [], access: await siteAccess() };
   }
 
   const googleReady = () => builtIn || !!(S.google.clientId && S.google.clientSecret);
@@ -46,9 +48,31 @@
     return `<div class="row"><button data-act="helper" class="sm">Check the helper</button>
       <span class="status ${h && h.ok ? "good" : "bad"}">${h ? esc(h.text) : ""}</span></div>`;
   }
-  const helperSteps = () => `<p>iCloud and other IMAP inboxes go through a small helper program, because an extension can't open an IMAP connection.
-      It's one Python file with no dependencies, and it only answers PocketCodes. Install it once from the PocketCodes folder, then restart Firefox:</p>
+  const helperSteps = () => `<p>iCloud and other IMAP inboxes, authenticator codes and texts go through a small helper program, because an extension can't open an IMAP connection or reach this computer's vault.
+      It's one Python file with no dependencies, and it only answers PocketCodes. Install it once from the PocketCodes folder (again after an update), then restart Firefox:</p>
     <div class="copy"><input type="text" readonly value="${esc(CMD)}" aria-label="Command"><button data-act="copyCmd">Copy</button></div>`;
+
+  function totpRow(t) {
+    const rm = ui.armed === t.id ? `<button data-act="removeTotp" data-id="${esc(t.id)}" class="bad sm">Remove? Press again</button>` : `<button data-act="removeTotp" data-id="${esc(t.id)}" class="sm">Remove</button>`;
+    return `<div class="acct box"><div class="who"><span><span class="tag">Authenticator</span><b>${esc(t.name)}</b></span><span class="quiet">${esc(t.site)}${t.label ? " · " + esc(t.label) : ""}</span></div>
+      <div class="row">${rm}</div></div>`;
+  }
+
+  function totpForm() {
+    const h = ui.helper;
+    const missing = h && !h.ok && (h.code === "no-host" || h.code === "old-host");
+    return `<form class="box" data-form="totp" autocomplete="off">
+      ${missing ? `<div class="box">${helperSteps()}${helperLine()}</div>` : ""}
+      <div class="grid2">
+        <label>Site<input type="text" name="site" required placeholder="github.com" spellcheck="false"></label>
+        <label>Name (optional)<input type="text" name="name" placeholder="GitHub"></label>
+      </div>
+      <label>Key, or the otpauth:// link<input type="password" name="key" required autocomplete="off" spellcheck="false" placeholder="JBSW Y3DP EHPK 3PXP"></label>
+      <p class="quiet">When you turn on two-factor sign-in, the site shows a QR code: choose its <b>Can't scan it?</b> or <b>Enter a key</b> link and paste that key here. It goes straight to the helper, which keeps it in this computer's own vault; PocketCodes only ever sees the codes. Add it to your phone's authenticator too, so you aren't locked out away from this computer.</p>
+      <div class="row"><button class="go" type="submit" ${ui.working === "totp" ? "disabled" : ""}>${ui.working === "totp" ? "Checking the key…" : "Add authenticator"}</button>
+        <button type="button" data-act="cancelTotp">Cancel</button></div>
+    </form>`;
+  }
 
   function imapForm() {
     const p = PC.imap.presets[ui.preset];
@@ -76,7 +100,8 @@
     const g1 = S.google, m1 = S.microsoft;
     const now = Date.now();
     const top = S.codes.find((c) => !c.used && now - c.at < s.fresh * PC.MIN);
-    const n = S.accounts.length;
+    const n = S.accounts.filter((a) => a.kind !== "texts").length;
+    const texts = S.accounts.some((a) => a.kind === "texts");
     const gmail = googleReady()
       ? `<button data-act="addOAuth" data-kind="google" class="go" ${ui.working === "google" ? "disabled" : ""}>${ui.working === "google" ? "Waiting for Google…" : "Add Gmail"}</button>`
       : `<button data-act="openGoogle">Add Gmail</button>`;
@@ -99,7 +124,7 @@
               <p class="quiet">${builtIn ? "Gmail is just a Google sign-in. Google says PocketCodes isn't verified (it's a free, personal app): choose <b>Continue</b> there. " : ""}Add as many as you like; each one is checked on its own.</p>
               ${ui.addImap ? imapForm() : ""}
               <p class="status ${ui.noteBad ? "bad" : "good"}" role="status">${esc(ui.note)}</p>
-              ${n ? S.accounts.map(acctRow).join("") : ""}
+              ${S.accounts.length ? S.accounts.map(acctRow).join("") : ""}
             </div></div>
           <div class="step"><span class="n ${pageOn ? "done" : ""}">2</span><h3>Codes pop up on sign-in pages</h3>
             <div class="body">
@@ -112,6 +137,30 @@
             </div></div>
           <div class="step"><span class="n done">3</span><h3>Fill with one key</h3>
             <div class="body"><p>On any page, <kbd>Alt+Shift+F</kbd> fills the newest code, and <kbd>Alt+Shift+C</kbd> opens the list. The toolbar button's <b>Fill</b> does the same.</p></div></div>
+        </div>
+      </section>
+
+      <section class="panel card" id="more">
+        <div class="band"><span class="label">Texts and authenticator apps</span></div>
+        <div class="in steps">
+          <div class="step"><span class="n ${S.auth.length ? "done" : ""}">A</span><h3>Authenticator codes</h3>
+            <div class="body">
+              <p>For sites that ask for the code in an authenticator app. Add a site's key once and its code shows by the box, and in the toolbar list, with no phone needed. Free, through the same helper as iCloud.</p>
+              <p class="status ${ui.moreBad ? "bad" : "good"}" role="status">${esc(ui.moreNote || "")}</p>
+              ${ui.addTotp ? totpForm() : `<div class="row"><button data-act="showTotp" class="go">Add an authenticator</button></div>`}
+              ${S.auth.map(totpRow).join("")}
+              <p class="quiet">With an authenticator on this computer, someone who gets into it has both your password and your code. That's the trade for the convenience; leave out the accounts that matter most.</p>
+            </div></div>
+          <div class="step"><span class="n ${texts || s.forward ? "done" : ""}">B</span><h3>Codes sent by text</h3>
+            <div class="body">
+              <p>When a page says it texted your phone, the chip stays away unless your texts reach PocketCodes. Two free ways:</p>
+              <h4>On a Mac, with an iPhone</h4>
+              <p class="quiet">Turn on <b>Text Message Forwarding</b> for this Mac on the iPhone (Settings › Apps › Messages), so texts land in the Mac's Messages app. Then give your browser <b>Full Disk Access</b> (System Settings › Privacy &amp; Security), restart it, and PocketCodes reads new texts through the helper, read-only.</p>
+              <div class="row">${texts ? `<span class="good"><b>Reading texts on this Mac.</b></span>` : `<button data-act="addTexts" ${ui.working === "texts" ? "disabled" : ""}>${ui.working === "texts" ? "Checking Messages…" : "Read texts on this Mac"}</button>`}</div>
+              <h4>Anywhere else: forward them to an inbox</h4>
+              <p class="quiet">iPhone: in the Shortcuts app, Automation › New › <b>Message</b>, Message Contains <code>code</code>, Run Immediately; the action is <b>Send Email</b> to one of the inboxes above, subject <code>${esc(PC.texts.FORWARD_SUBJECT)}</code>, body the Shortcut Input. Android: any free SMS-forwarding app, sending to one of those inboxes with that subject.</p>
+              <label class="check"><input type="checkbox" data-set="settings.forward" ${s.forward ? "checked" : ""}><span>My phone forwards texts to one of my inboxes</span></label>
+            </div></div>
         </div>
       </section>
 
@@ -145,7 +194,7 @@
             </div>
             <p class="quiet">School and work Google accounts (a university's, say) may block apps their admin hasn't approved. If sign-in says access is blocked, forward that account's mail to a Gmail address you can add.</p>
           </div></details>
-          <details id="helper" ${ui.open === "helper" ? "open" : ""}><summary>IMAP helper (iCloud and other IMAP)</summary><div class="in">${helperSteps()}${helperLine()}</div></details>
+          <details id="helper" ${ui.open === "helper" ? "open" : ""}><summary>The helper (iCloud, IMAP, authenticators, texts)</summary><div class="in">${helperSteps()}${helperLine()}</div></details>
           <details id="microsoft" ${ui.open === "microsoft" ? "open" : ""}><summary>Outlook sign-in</summary><div class="in">
             <p class="quiet">Only needed for Outlook, Hotmail or Microsoft 365. Register an app in <a href="https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener">Microsoft Entra</a> with account type <b>Personal and work accounts</b>, add a <b>Mobile and desktop applications</b> platform with this redirect URI, then paste the application (client) ID. This one is untested.</p>
             <div class="copy"><input type="text" readonly value="${esc(redirect)}" aria-label="Redirect URI"><button data-act="copyRedirect">Copy</button></div>
@@ -167,7 +216,10 @@
   async function checkHelper() {
     ui.helper = { ok: false, text: "Checking…" }; draw();
     const r = await PC.send({ type: "helper" });
-    ui.helper = r && r.ok ? { ok: true, text: `Installed: version ${r.helper.version} on ${r.helper.os}.` } : { ok: false, code: r && r.code, text: (r && r.error) || "No answer." };
+    ui.helper = r && r.ok
+      ? r.helper.totp ? { ok: true, text: `Installed: version ${r.helper.version} on ${r.helper.os}.` }
+        : { ok: false, code: "old-host", text: `Installed, but version ${r.helper.version} is too old for authenticators and texts: run the command again, then restart Firefox.` }
+      : { ok: false, code: r && r.code, text: (r && r.error) || "No answer." };
     draw();
   }
 
@@ -203,6 +255,22 @@
     else if (a === "helper") await checkHelper();
     else if (a === "pageOn" || a === "pageOff") await setPage(a === "pageOn");
     else if (a === "clear") { await PC.send({ type: "clear" }); note("Cleared."); }
+    else if (a === "showTotp") { ui.addTotp = true; draw(); checkHelper(); }
+    else if (a === "cancelTotp") { ui.addTotp = false; draw(); }
+    else if (a === "removeTotp") {
+      if (ui.armed !== el.dataset.id) { ui.armed = el.dataset.id; draw(); return; }
+      ui.armed = null;
+      await PC.send({ type: "removeTotp", id: el.dataset.id });
+      ui.moreNote = "Removed, and the helper forgot its key."; ui.moreBad = false;
+      await load(); draw();
+    } else if (a === "addTexts") {
+      ui.working = "texts"; draw();
+      const r = await PC.send({ type: "addTexts" });
+      ui.working = null;
+      ui.moreNote = r && r.error ? r.error : "Reading texts on this Mac."; ui.moreBad = !!(r && r.error);
+      if (r && (r.code === "no-host" || r.code === "old-host")) ui.open = "helper";
+      await load(); draw();
+    }
   }
 
   async function setPage(on) {
@@ -233,6 +301,16 @@
   app.addEventListener("submit", async (e) => {
     e.preventDefault();
     const f = e.target;
+    if (f.dataset.form === "totp") {
+      const t = Object.fromEntries(new FormData(f));
+      ui.working = "totp"; draw();
+      const r = await PC.send(Object.assign({ type: "addTotp" }, t));
+      ui.working = null;
+      if (r && r.error) { if (r.code === "no-host" || r.code === "old-host") checkHelper(); ui.moreNote = r.error; ui.moreBad = true; draw(); return; }
+      ui.addTotp = false; ui.moreNote = `Added ${r.entry.name}: its code right now is ${PC.group(r.code)}.`; ui.moreBad = false;
+      await load(); draw();
+      return;
+    }
     if (f.dataset.form !== "imap") return;
     const d = Object.fromEntries(new FormData(f));
     ui.working = "imap"; note("");

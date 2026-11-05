@@ -94,3 +94,26 @@ test("invisible characters and links don't hide or fake a code", () => {
   const z = String.fromCharCode(0x200b);
   assert.equal(code("Code", `Your co${z}de is 482${z}913 https://example.com/verify?t=999999`), "482913");
 });
+
+test("an authenticator's otpauth link and a bare key are both read", () => {
+  const a = codes.otpauth("otpauth://totp/GitHub:octo%20cat?secret=JBSW%20Y3DP-EHPK3PXP&issuer=GitHub&digits=8&period=60&algorithm=sha256");
+  assert.deepEqual(a, { secret: "JBSWY3DPEHPK3PXP", issuer: "GitHub", name: "octo cat", digits: 8, period: 60, algo: "SHA256" });
+  const b = codes.otpauth("otpauth://totp/you@example.com?secret=JBSWY3DPEHPK3PXP");
+  assert.equal(b.issuer, "");
+  assert.equal(b.name, "you@example.com");
+  assert.equal(b.digits, 6);
+  assert.equal(codes.otpauth("jbsw y3dp ehpk 3pxp").secret, "JBSWY3DPEHPK3PXP");
+  assert.equal(codes.otpauth("otpauth://hotp/X?secret=JBSWY3DPEHPK3PXP&counter=1"), null, "counter codes aren't supported");
+  assert.equal(codes.otpauth("not a key"), null);
+  assert.equal(codes.otpauth("123456"), null);
+});
+
+test("sites are bare host names, and subdomains count as the site", () => {
+  assert.equal(codes.site("https://www.GitHub.com/login?x=1"), "github.com");
+  assert.equal(codes.site("accounts.google.com"), "accounts.google.com");
+  assert.equal(codes.site("GitHub"), "");
+  assert.ok(codes.sameSite("accounts.google.com", "google.com"));
+  assert.ok(codes.sameSite("github.com", "github.com"));
+  assert.ok(!codes.sameSite("notgithub.com", "github.com"));
+  assert.ok(!codes.sameSite("github.com", ""));
+});

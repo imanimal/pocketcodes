@@ -50,7 +50,9 @@ writeFileSync(join(profile, "user.js"), [
 ].join("\n"));
 const port = 9300 + Math.floor(Math.random() * 400);
 const ff = spawn(FIREFOX, ["-headless", "-no-remote", "-profile", profile, "--remote-debugging-port", String(port)], {
-  stdio: "ignore", env: Object.assign({}, process.env, { MOZ_REMOTE_ALLOW_SYSTEM_ACCESS: "1" }), // to script the extension's own pages
+  // MOZ_REMOTE_ALLOW_SYSTEM_ACCESS to script the extension's own pages; POCKETCODES_DATA so the helper Firefox
+  // starts keeps this run's authenticator key (and anything else) in the throwaway profile, not your own vault
+  stdio: "ignore", env: Object.assign({}, process.env, { MOZ_REMOTE_ALLOW_SYSTEM_ACCESS: "1", POCKETCODES_DATA: join(profile, "helper-data") }),
 });
 
 let ws, seq = 0;
@@ -183,9 +185,27 @@ try {
   const landed = await until(p6, () => (document.querySelector("pocketcodes-chip") || { dataset: {} }).dataset.state === "code");
   check(waiting && landed, "with no code yet the chip pops up waiting, then shows the code when it lands", `waiting=${waiting} landed=${landed}`);
 
+  // a page that says it texted the code: no chip, since no texts reach this profile (there's a fresh email code)
+  const p7 = await tab(`${SITE}/tests/fixtures/page-sms.html`);
+  await wait(2000);
+  const smsQuiet = await run(p7, () => JSON.stringify(!document.querySelector("pocketcodes-chip") || !document.querySelector("pocketcodes-chip").dataset.state));
+  check(smsQuiet, "a page that texted the code gets no chip while texts don't reach PocketCodes");
+
   const helper = await run(opts, async () => JSON.stringify(await globalThis.browser.runtime.sendMessage({ type: "helper" })));
   if (!helper.ok && helper.code === "no-host") console.log("skip  IMAP helper (not installed here)");
   else check(helper.ok, helper.ok ? `IMAP helper answers (version ${helper.helper.version})` : "IMAP helper answers", helper.error);
+
+  // an authenticator for this test site (the RFC 6238 test key), and a page asking for its code
+  if (helper.ok && helper.helper.totp) {
+    const added = await run(opts, async () => JSON.stringify(await globalThis.browser.runtime.sendMessage({ type: "addTotp", site: "127.0.0.1", name: "E2E", key: "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ" })));
+    await give(opts, "864200", { fill: "auto" }); // a fresh email code the authenticator page must not take
+    const p8 = await tab(`${SITE}/tests/fixtures/page-app.html`);
+    const got = await until(p8, () => /^\d{6}$/.test(document.getElementById("otp").value));
+    const v = await run(p8, () => JSON.stringify(document.getElementById("otp").value));
+    const now = await run(opts, async (id) => JSON.stringify((await globalThis.browser.runtime.sendMessage({ type: "totp", id: JSON.parse(id) })).codes[0]), added.entry && added.entry.id);
+    check(added.ok && got && v !== "864200" && v === now.code, "an authenticator page gets this site's authenticator code, not the email one", JSON.stringify({ added, v, now }));
+    await run(opts, async (id) => JSON.stringify(await globalThis.browser.runtime.sendMessage({ type: "removeTotp", id: JSON.parse(id) })), added.entry && added.entry.id);
+  } else if (helper.ok) console.log("skip  authenticator (the installed helper is too old)");
 
   // SHOTS=<folder>: screenshots of the chip on a sign-in page, waiting and with a code
   if (process.env.SHOTS) {

@@ -1,6 +1,7 @@
 /* PocketCodes: the popup. Reads storage (the background script is the only writer) and sends it messages: poll,
-   fill, used, seen, addOAuth. While it is open it asks for a check every five seconds, so a code that has just been
-   sent shows up as soon as the email does. */
+   fill, used, seen, addOAuth, totp. While it is open it asks for a check every five seconds, so a code that has just
+   been sent shows up as soon as the email does. Authenticators added in Settings show their current code below the
+   list, counting down; the helper makes each one (the popup never sees a key). */
 (function (g) {
   const PC = g.PC;
   const api = PC.api;
@@ -8,16 +9,26 @@
   const app = document.getElementById("app");
   const msg = document.getElementById("msg");
   let S = { accounts: [], codes: [], settings: PC.DEFAULTS, meta: {}, st: {} };
-  let busy = false, msgTimer = 0;
+  let busy = false, msgTimer = 0, T = [];
 
   /** Whether the browser still lets the sign-in page script run (you can take its site access away in the add-ons page). */
   const siteAccess = () => (api.permissions && api.permissions.contains ? api.permissions.contains({ origins: ["<all_urls>"] }).catch(() => true) : Promise.resolve(true));
 
   async function load() {
-    const r = await api.storage.local.get(["accounts", "codes", "settings", "meta"]);
+    const r = await api.storage.local.get(["accounts", "codes", "settings", "meta", "authenticators"]);
+    if ((r.authenticators || []).length !== T.length) await totps(); // added or removed one meanwhile
     const accounts = r.accounts || [];
     const st = await api.storage.local.get(accounts.map((a) => "st:" + a.id));
     S = { accounts, codes: r.codes || [], settings: Object.assign({}, PC.DEFAULTS, r.settings || {}), meta: r.meta || {}, st, access: await siteAccess() };
+  }
+
+  const secondsLeft = (t, now) => Math.max(0, t.left - Math.floor((now - T.at) / 1000));
+
+  /** The authenticators' current codes, from the helper. */
+  async function totps() {
+    const r = await PC.send({ type: "totp" }).catch(() => null);
+    T = (r && r.codes) || [];
+    T.at = Date.now();
   }
 
   function say(text) {
@@ -57,9 +68,16 @@
           <div class="meta" title="${esc(c.subject)}"><b>${esc(c.from)}</b> · ${esc(PC.ago(c.at, now))}${c.used ? " · used" : ""} · ${esc(c.email)}</div>
         </li>`).join("")}</ul>`;
     }
+    const left = (t) => secondsLeft(t, now);
+    const auth = T.length ? `<ul class="codes">${T.map((t) => t.code ? `
+        <li class="card" data-totp="${esc(t.id)}" data-code="${esc(t.code)}">
+          <span class="lcd" aria-label="Code ${esc(t.code)}">${esc(PC.group(t.code))}</span>
+          <div class="acts"><button data-act="copy" class="sm">Copy</button><button data-act="fill" class="go">Fill</button></div>
+          <div class="meta"><b>${esc(t.name)}</b> · authenticator · <span data-left="${esc(t.id)}">${left(t)}</span> s · ${esc(t.site)}</div>
+        </li>` : `<li class="card old"><div class="meta"><b>${esc(t.name)}</b> · <span class="bad">${esc(t.error || "No code")}</span></div></li>`).join("")}</ul>` : "";
     const n = S.accounts.length;
     const foot = `<div class="foot"><span>${n} inbox${n === 1 ? "" : "es"}</span><span>${S.meta.lastPoll ? "Checked " + esc(PC.ago(S.meta.lastPoll, now)) : ""}</span></div>`;
-    PC.mount(app, head + warns + nudge + body + foot);
+    PC.mount(app, head + warns + nudge + body + auth + foot);
   }
 
   async function act(el) {
@@ -75,7 +93,7 @@
       catch (e) { say("The browser wouldn't let this copy. Select the code and press Ctrl+C."); }
     } else if (a === "fill") {
       const [tab] = await api.tabs.query({ active: true, currentWindow: true });
-      const r = await PC.send({ type: "fill", id: li.dataset.id, tabId: tab && tab.id });
+      const r = await PC.send({ type: "fill", id: li.dataset.id, totp: li.dataset.totp, tabId: tab && tab.id });
       if (r && r.ok) { say("Filled " + PC.group(r.code)); setTimeout(() => g.close(), 700); }
       else say((r && (r.reason || r.error)) || "Couldn't fill this page.");
     } else if (a === "reauth") {
@@ -94,8 +112,20 @@
   api.storage.onChanged.addListener((_, area) => { if (area === "local") load().then(draw); });
 
   (async () => {
+    await totps();
     await load();
     draw();
+    // the authenticator codes count down every second, and come back new when one runs out
+    // (only the seconds change in place, so a click on Fill never lands on a key that's being redrawn)
+    setInterval(async () => {
+      if (!T.length) return;
+      const now = Date.now();
+      if (T.some((t) => t.code && secondsLeft(t, now) <= 0)) { await totps(); draw(); return; }
+      for (const el of app.querySelectorAll("[data-left]")) {
+        const t = T.find((x) => x.id === el.dataset.left);
+        if (t) el.textContent = String(secondsLeft(t, now));
+      }
+    }, 1000);
     PC.send({ type: "seen" }).catch(() => {});
     const ping = () => PC.send({ type: "poll", fast: true }).catch(() => {});
     ping();

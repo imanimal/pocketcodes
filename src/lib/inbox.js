@@ -57,6 +57,54 @@
     return acct;
   }
 
+  /** Starts reading this Mac's texts, once the helper shows it can. */
+  async function addTexts() {
+    await PC.texts.check();
+    const id = PC.texts.ID;
+    const acct = await upsert({ id, kind: "texts", email: "Texts on this Mac", label: "Messages" });
+    await PC.store.del(["seen:" + id]);
+    poll({ only: id, force: true });
+    return acct;
+  }
+
+  // ── authenticators: the keys live in the helper's vault; this list only says which site each one is for ──
+  const authenticators = () => PC.store.get("authenticators", []);
+
+  /** Adds an authenticator from its key or otpauth:// link. Resolves with { entry, code }. */
+  async function addTotp({ key, name, site }) {
+    const o = PC.codes.otpauth(key);
+    if (!o) throw new Error("Paste the key the site shows under \"Can't scan the QR code?\", or its otpauth:// link.");
+    site = PC.codes.site(site);
+    if (!site) throw new Error("Enter the site it's for, for example github.com.");
+    name = String(name || o.issuer || site).trim().slice(0, 60);
+    const label = String(o.name || "").slice(0, 80);
+    const id = `totp:${site}:${label || name}`.toLowerCase();
+    const r = await PC.imap.call({ op: "totp-add", acct: id, secret: o.secret, digits: o.digits, period: o.period, algo: o.algo }, 10000);
+    const entry = { id, name, site, label, digits: o.digits, period: o.period, added: Date.now() };
+    await PC.mutex("authenticators", async () => {
+      const list = (await authenticators()).filter((x) => x.id !== id);
+      list.push(entry);
+      await PC.store.set("authenticators", list);
+    });
+    return { entry, code: r.code };
+  }
+
+  async function removeTotp(id) {
+    await PC.imap.remove(id);
+    await PC.mutex("authenticators", async () => PC.store.set("authenticators", (await authenticators()).filter((x) => x.id !== id)));
+  }
+
+  /** The current codes of the authenticators for `host` (or the one `id`, or all): [{ id, name, site, label, code, left }]. */
+  async function totpCodes({ host, id } = {}) {
+    const list = (await authenticators()).filter((x) => (id ? x.id === id : host ? PC.codes.sameSite(String(host).toLowerCase().replace(/^www\./, ""), x.site) : true));
+    const out = [];
+    for (const x of list) {
+      try { out.push(Object.assign({}, x, await PC.imap.call({ op: "totp", acct: x.id }, 8000))); }
+      catch (e) { out.push(Object.assign({}, x, { error: String((e && e.message) || e), nohost: e && e.code === "no-host" })); }
+    }
+    return out;
+  }
+
   async function removeAccount(id) {
     const list = await accounts();
     const a = list.find((x) => x.id === id);
@@ -89,7 +137,7 @@
       const hit = PC.codes.find(m);
       if (!hit) continue;
       found.push({
-        id: m.key, acct: a.id, email: a.email, kind: a.kind, code: hit.code,
+        id: m.key, acct: a.id, email: a.email, kind: a.kind, code: hit.code, via: PC.texts.isText(a, m) ? "sms" : "email",
         from: PC.sender(m.from), subject: String(m.subject || "").slice(0, 140), at: m.at, found: Date.now(), seen: false, used: false,
       });
     }
@@ -175,5 +223,5 @@
     await badge();
   });
 
-  PC.inbox = { poll, addOAuth, addImap, removeAccount, newest, badge, mark, readOne, keep, LOOK_BACK };
+  PC.inbox = { poll, addOAuth, addImap, addTexts, addTotp, removeTotp, totpCodes, removeAccount, newest, badge, mark, readOne, keep, LOOK_BACK };
 })(globalThis);

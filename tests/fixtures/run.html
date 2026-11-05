@@ -68,6 +68,7 @@ async function detection(win) {
         const got = want === "one" ? els[0].value.replace(/\D/g, "") : els.map((e) => e.value).join("");
         const expectVal = want === "one" && els[0].type === "number" ? "482913" : "482913".slice(0, want === "split" ? els.length : 99);
         if (got !== expectVal || !events) { ok = false; detail = `filled "${got}" with ${events} input events`; }
+        if (ok && sec.dataset.via !== undefined && F.channel(found[0]) !== sec.dataset.via) { ok = false; detail = `channel "${F.channel(found[0])}", wanted "${sec.dataset.via}"`; }
       }
     }
     report(ok, `find: ${note}`, detail);
@@ -77,7 +78,7 @@ async function detection(win) {
 /** offer.js against a stand-in browser API: the chip pops up and waits, shows the code, auto-fill fills, fast checks
     are asked for. */
 async function offer(f) {
-  const make = (codes, settings, accounts) => {
+  const make = (codes, settings, accounts, totp) => {
     const store = { codes, settings, accounts };
     const listeners = [];
     const sent = [];
@@ -92,13 +93,16 @@ async function offer(f) {
           },
           onChanged: { addListener: (l) => listeners.push(l) },
         },
-        runtime: { sendMessage: async (m) => { sent.push(m); return { ok: true }; } },
+        runtime: { sendMessage: async (m) => { sent.push(m); return m.type === "totp" ? { ok: true, codes: totp || [] } : { ok: true }; } },
       },
       push(c) { this.api.storage.local.set({ codes: [c].concat(store.codes) }); },
     };
   };
   const chip = (w) => { const h = w.document.querySelector("pocketcodes-chip"); return (h && h.dataset.state) || ""; };
-  const code = (n, ago) => ({ id: "g:" + n, code: n, from: "Example", email: "you@example.com", at: Date.now() - ago, used: false, seen: false });
+  const code = (n, ago, via) => ({ id: "g:" + n, code: n, from: "Example", email: "you@example.com", via, at: Date.now() - ago, used: false, seen: false });
+  const gmail = { id: "google:you@example.com", kind: "google", email: "you@example.com" };
+  const mac = { id: "texts:mac", kind: "texts", email: "Texts on this Mac" };
+  const quiet = async (w, s) => { await wait(800); return !chip(w) && !s.sent.some((m) => m.type === "poll") && w.document.getElementById("otp").value === ""; };
 
   const cases = [
     { name: "offer: chip by a code box when a fresh code exists", page: "page-otp.html", codes: [code("482913", 60e3)], settings: { fill: "ask" },
@@ -128,12 +132,28 @@ async function offer(f) {
       check: async (w, s) => until(() => { const i = w.document.getElementById("late"); return i && i.value === "112233"; }, 4000) },
     { name: "offer: a stale code is not offered (the chip waits for a new one)", page: "page-otp.html", codes: [code("999000", 60 * 60e3)], settings: { fill: "auto" },
       check: async (w, s) => { await wait(800); return chip(w) === "waiting" && w.document.getElementById("otp").value === ""; } },
+    { name: "offer: a text prompt gets no chip and no checks while texts don't reach PocketCodes", page: "page-sms.html", codes: [code("482913", 60e3, "email")], settings: { fill: "auto" },
+      check: quiet },
+    { name: "offer: a text prompt takes a code that came by text, never one from email", page: "page-sms.html", codes: [code("111111", 30e3, "email"), code("246810", 60e3, "sms")], settings: { fill: "auto" }, accounts: [gmail, mac],
+      check: async (w, s) => until(() => w.document.getElementById("otp").value === "246810") },
+    { name: "offer: a text prompt waits when texts are forwarded to an inbox", page: "page-sms.html", codes: [code("111111", 30e3, "email")], settings: { forward: true },
+      check: async (w, s) => (await until(() => chip(w) === "waiting")) && s.sent.some((m) => m.type === "poll") },
+    { name: "offer: an email prompt doesn't take a code that came by text", page: "page-otp.html", codes: [code("246810", 30e3, "sms")], settings: { fill: "auto" }, accounts: [gmail, mac],
+      check: async (w, s) => { await wait(800); return chip(w) === "waiting" && w.document.getElementById("otp").value === ""; } },
+    { name: "offer: an authenticator prompt fills this site's authenticator code, and never waits on the inboxes", page: "page-app.html", codes: [code("111111", 30e3)], settings: { fill: "auto" },
+      totp: [{ id: "totp:127.0.0.1:you", name: "Example", site: "127.0.0.1", code: "908172", left: 20 }],
+      check: async (w, s) => (await until(() => w.document.getElementById("otp").value === "908172")) && !s.sent.some((m) => m.type === "poll" || m.type === "used") },
+    { name: "offer: an authenticator prompt shows the code with a Fill key in ask mode", page: "page-app.html", codes: [], settings: { fill: "ask" },
+      totp: [{ id: "totp:127.0.0.1:you", name: "Example", site: "127.0.0.1", code: "908172", left: 20 }],
+      check: async (w, s) => (await until(() => chip(w) === "code")) && w.document.getElementById("otp").value === "" },
+    { name: "offer: an authenticator prompt with no authenticator added gets no chip and no checks", page: "page-app.html", codes: [code("482913", 60e3)], settings: { fill: "auto" },
+      check: quiet },
     { name: "offer: nothing on a page without a code box, and no checks asked for", page: "page-login.html", codes: [code("482913", 60e3)], settings: { fill: "auto" },
       check: async (w, s) => { await wait(800); return !chip(w) && !s.sent.some((m) => m.type === "poll"); } },
   ];
   for (const c of cases) {
     const w = await frameReady(f, c.page + "?" + Math.random());
-    const s = make(c.codes, Object.assign({ fresh: 10, page: true }, c.settings), c.accounts || [{ id: "google:you@example.com", kind: "google", email: "you@example.com" }]);
+    const s = make(c.codes, Object.assign({ fresh: 10, page: true }, c.settings), c.accounts || [gmail], c.totp);
     w.browser = s.api;
     await load(w, "../../src/lib/util.js");
     await load(w, "../../src/content/fill.js");

@@ -2,8 +2,10 @@
 Run: python -m unittest discover -s tests -p "test_*.py" """
 import imaplib
 import io
+import json
 import os
 import shutil
+import sqlite3
 import sys
 import tempfile
 import time
@@ -182,6 +184,92 @@ class HostTest(unittest.TestCase):
     def test_imap_date_is_a_day_early(self):
         ms = time.mktime((2026, 11, 4, 12, 0, 0, 0, 0, -1)) * 1000
         self.assertIn(host.imap_date(ms), ("03-Nov-2026", "02-Nov-2026"))
+
+    # ── authenticator codes ──
+    RFC_KEY = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"  # base32 of the RFC 6238 test key "12345678901234567890"
+
+    def test_totp_matches_the_rfc_vectors(self):
+        key = host.b32key(self.RFC_KEY)
+        for at, want in ((59, "94287082"), (1111111109, "07081804"), (1234567890, "89005924"), (2000000000, "69279037")):
+            self.assertEqual(host.totp(key, at, digits=8)[0], want)
+        self.assertEqual(host.totp(key, 59)[0], "287082")
+        self.assertEqual(host.totp(key, 59)[1], 1, "59 s into a 30 s window leaves 1 s")
+
+    def test_totp_key_is_read_however_it_was_typed(self):
+        self.assertEqual(host.b32key("gezd gnbv-gy3t qojq gezd gnbv gy3t qojq"), host.b32key(self.RFC_KEY))
+        with self.assertRaises(host.Fail):
+            host.b32key("not a key 0189")
+        with self.assertRaises(host.Fail):
+            host.b32key("GEZDGNBV")  # 5 bytes: too short to be real
+
+    def test_totp_key_stays_in_the_vault_and_only_codes_come_back(self):
+        r = self.helper.handle({"op": "totp-add", "acct": "totp:example.com:you", "secret": self.RFC_KEY.lower()})
+        self.assertRegex(r["code"], r"^\d{6}$")
+        self.assertNotIn(self.RFC_KEY, json.dumps(r))
+        self.assertIn(self.RFC_KEY, self.vault.d["totp:example.com:you"])
+        again = self.helper.handle({"op": "totp", "acct": "totp:example.com:you"})
+        self.assertEqual(again["code"], host.totp(host.b32key(self.RFC_KEY))[0])
+        self.assertFalse(os.listdir(self.dir), "nothing about it lands in the data folder")
+        self.helper.handle({"op": "remove", "acct": "totp:example.com:you"})
+        with self.assertRaises(host.Fail):
+            self.helper.handle({"op": "totp", "acct": "totp:example.com:you"})
+
+    def test_totp_add_refuses_odd_settings(self):
+        for extra in ({"digits": 4}, {"algo": "MD5"}, {"period": 5}, {"acct": "imap:you@example.com"}):
+            with self.assertRaises(host.Fail):
+                self.helper.handle(dict({"op": "totp-add", "acct": "totp:x:y", "secret": self.RFC_KEY}, **extra))
+
+    # ── texts on a Mac ──
+
+    def chat_db(self, rows, seconds=False):
+        path = os.path.join(self.dir, "chat.db")
+        db = sqlite3.connect(path)
+        db.execute("CREATE TABLE handle (ROWID INTEGER PRIMARY KEY, id TEXT)")
+        db.execute("CREATE TABLE message (ROWID INTEGER PRIMARY KEY, text TEXT, attributedBody BLOB, date INTEGER, handle_id INTEGER, is_from_me INTEGER)")
+        db.execute("INSERT INTO handle VALUES (1, '+15550100'), (2, '32665')")
+        scale = 1 if seconds else 1e9
+        for rowid, text, blob, ms, handle, mine in rows:
+            db.execute("INSERT INTO message VALUES (?, ?, ?, ?, ?, ?)", (rowid, text, blob, int((ms / 1000 - host.APPLE_EPOCH) * scale), handle, mine))
+        db.commit()
+        db.close()
+        os.environ["POCKETCODES_CHATDB"] = path
+        self.addCleanup(os.environ.pop, "POCKETCODES_CHATDB", None)
+
+    @staticmethod
+    def archived(text):
+        b = text.encode("utf-8")
+        size = bytes([len(b)]) if len(b) < 0x80 else b"\x81" + len(b).to_bytes(2, "little")
+        return (b"\x04\x0bstreamtyped\x81\xe8\x03\x84\x01@\x84\x84\x84\x12NSAttributedString\x00\x84\x84\x08NSObject\x00"
+                b"\x85\x92\x84\x84\x84\x08NSString\x01\x94\x84\x01+" + size + b + b"\x86\x84\x02iI\x01")
+
+    def test_texts_reads_recent_incoming_messages_only(self):
+        self.chat_db([
+            (1, "Your Example code is 111111", None, NOW - 3 * 3600e3, 2, 0),   # too old
+            (2, "Your Example code is 482913", None, NOW - 60e3, 2, 0),
+            (3, None, self.archived("G-735201 is your Google verification code."), NOW - 30e3, 1, 0),
+            (4, "sent by me: 999999", None, NOW - 10e3, 1, 1),                  # one of mine
+        ])
+        got = self.helper.handle({"op": "texts", "since": NOW - 1800e3})["messages"]
+        self.assertEqual([m["key"] for m in got], ["t:3", "t:2"])
+        self.assertEqual(got[0]["text"], "G-735201 is your Google verification code.")
+        self.assertEqual(got[1]["from"], "32665")
+        self.assertLess(abs(got[1]["at"] - (NOW - 60e3)), 1500)
+
+    def test_texts_long_archived_body_and_old_second_dates(self):
+        long = "Your code is 246810. " + "x" * 300
+        self.chat_db([(5, "", self.archived(long), NOW - 5e3, 1, 0)], seconds=True)
+        got = self.helper.handle({"op": "texts", "since": NOW - 60e3})["messages"]
+        self.assertEqual(got[0]["text"], long)
+
+    def test_texts_without_full_disk_access_says_how_to_allow_it(self):
+        path = os.path.join(self.dir, "empty.db")
+        sqlite3.connect(path).close()  # no tables, as macOS shows a database it won't let us read
+        os.environ["POCKETCODES_CHATDB"] = path
+        self.addCleanup(os.environ.pop, "POCKETCODES_CHATDB", None)
+        with self.assertRaises(host.Fail) as e:
+            self.helper.handle({"op": "texts"})
+        self.assertEqual(e.exception.code, "no-access")
+        self.assertIn("Full Disk Access", str(e.exception))
 
     @unittest.skipUnless(host.SYSTEM in ("Windows", "Linux"), "the macOS vault is the Keychain")
     def test_real_vault_round_trip(self):

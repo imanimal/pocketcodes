@@ -1,15 +1,16 @@
 /* PocketCodes: shared helpers for every context (background, popup, options, and the sign-in pages' content script).
    Classic scripts on globalThis.PC, no bundler and no npm. Load order: util → client → codes → google → microsoft →
-   imap → inbox → background; pages load util (→ client → imap on the options page) → their own script; the content script loads util → fill → offer.
+   imap → texts → inbox → background; pages load util (→ client → imap on the options page) → their own script; the content script loads util → fill → offer.
    The manifest's background list, the <script> tags in src/pages/*.html and background.js's importScripts stay in step.
 
    Storage is all storage.local. Only the background script writes the first group, so reads never race a write;
    the pages write the second group and read everything:
-     accounts     [{ id, kind: google|microsoft|imap, email, label, host?, port?, user?, added }]   (no secrets)
+     accounts     [{ id, kind: google|microsoft|imap|texts, email, label, host?, port?, user?, added }]   (no secrets)
+     authenticators [{ id: totp:<site>:<label>, name, site, label, digits, period, added }]   (the keys are in the helper)
      tok:<id>     a Google or Microsoft account's { refresh, access, exp }
      seen:<id>    the message keys already read for that account (newest last, capped)
      st:<id>      { ok, at, error?, auth? } how that account's last check went
-     codes        [{ id, acct, email, kind, code, from, subject, at, found, seen, used }], newest first
+     codes        [{ id, acct, email, kind, via: email|sms, code, from, subject, at, found, seen, used }], newest first
      meta         { lastPoll }
      settings     the options below (DEFAULTS)
      google       { clientId, clientSecret }   your own Google Cloud OAuth client (docs in the README)
@@ -30,6 +31,7 @@
     fresh: 10,          // minutes a code counts as fresh: offered for filling, and counted on the badge
     page: true,         // the chip on sign-in pages (offer.js, on every page through the manifest's content_scripts)
     fill: "ask",        // on those pages: ask (show a chip) | auto (fill it as soon as it arrives)
+    forward: false,     // texts reach an inbox here (an iPhone Shortcut or Android app forwards them), so text prompts get the chip
   };
   PC.DEFAULTS = DEFAULTS;
 
@@ -81,7 +83,7 @@
   /** A code as it reads best: 482913 → "482 913", 12345678 → "1234 5678"; anything else as it is. */
   PC.group = (code) => (/^\d{6}$/.test(code) ? code.slice(0, 3) + " " + code.slice(3) : /^\d{8}$/.test(code) ? code.slice(0, 4) + " " + code.slice(4) : code);
 
-  PC.KINDS = { google: "Gmail", microsoft: "Outlook", imap: "IMAP" };
+  PC.KINDS = { google: "Gmail", microsoft: "Outlook", imap: "IMAP", texts: "Messages" };
   PC.kindLabel = (a) => (a.kind === "imap" && a.label) || PC.KINDS[a.kind] || a.kind;
 
   // ── OAuth helpers (Google and Microsoft share them) ──
