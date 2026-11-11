@@ -186,5 +186,31 @@
     return /^[A-Z2-7]{16,}=*$/.test(secret) ? { secret, issuer: "", name: "", digits: 6, period: 30, algo: "SHA1" } : null;
   }
 
-  PC.codes = { htmlToText, clean, all, find, site, sameSite, otpauth };
+  const DUO_HOST = /^api-[a-z0-9-]+\.duo(?:security|federal)\.com$/;
+  const DUO_CODE = /^[A-Za-z0-9]{10,64}$/;
+
+  /** Duo's "add a device" code, from what its QR code says ("duo://CODE-<the API host in base64>"), the QR image's
+      own link (…/frame/qr?value=…), or the activation link Duo emails (https://m-<id>.duosecurity.com/activate/CODE).
+      Returns { host, code }, host being the organization's Duo API host, or null when the text is none of those. */
+  function duo(text) {
+    let t = String(text || "").trim();
+    if (/^https?:\/\//i.test(t)) {
+      let u;
+      try { u = new URL(t); } catch (e) { return null; }
+      const value = u.searchParams.get("value");
+      if (value) return duo(value);
+      const m = /^m-([a-z0-9-]+)\.(duo(?:security|federal)\.com)$/.exec(u.hostname.toLowerCase());
+      const code = u.pathname.split("/").filter(Boolean).pop() || "";
+      return m && DUO_CODE.test(code) ? { host: `api-${m[1]}.${m[2]}`, code } : null;
+    }
+    t = t.replace(/^duo:\/\//i, "");
+    const i = t.indexOf("-");
+    const code = t.slice(0, i), b64 = t.slice(i + 1).replace(/-/g, "+").replace(/_/g, "/").replace(/=+$/, "");
+    if (i < 0 || !DUO_CODE.test(code) || !/^[A-Za-z0-9+/]+$/.test(b64)) return null;
+    let host;
+    try { host = atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4)).toLowerCase(); } catch (e) { return null; }
+    return DUO_HOST.test(host) ? { host, code } : null;
+  }
+
+  PC.codes = { htmlToText, clean, all, find, site, sameSite, otpauth, duo };
 })(globalThis);

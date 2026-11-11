@@ -146,6 +146,14 @@ async function offer(f) {
     { name: "offer: an authenticator prompt shows the code with a Fill key in ask mode", page: "page-app.html", codes: [], settings: { fill: "ask" },
       totp: [{ id: "totp:127.0.0.1:you", name: "Example", site: "127.0.0.1", code: "908172", left: 20 }],
       check: async (w, s) => (await until(() => chip(w) === "code")) && w.document.getElementById("otp").value === "" },
+    { name: "offer: a Duo passcode is filled, and only then counted as used", page: "page-app.html", codes: [code("111111", 30e3)], settings: { fill: "auto" },
+      totp: [{ id: "duo:api-0000aaaa.duosecurity.com", kind: "duo", name: "Example University", site: "127.0.0.1", code: "315264", counter: 3 }],
+      check: async (w, s) => (await until(() => w.document.getElementById("otp").value === "315264"))
+        && s.sent.some((m) => m.type === "used" && m.totp === "duo:api-0000aaaa.duosecurity.com" && m.counter === 3) && !s.sent.some((m) => m.type === "poll") },
+    { name: "offer: a Duo passcode waits on the chip without a clock, and isn't used by being shown", page: "page-app.html", codes: [], settings: { fill: "ask" },
+      totp: [{ id: "duo:api-0000aaaa.duosecurity.com", kind: "duo", name: "Example University", site: "127.0.0.1", code: "315264", counter: 3 }],
+      check: async (w, s) => (await until(() => chip(w) === "code")) && (await wait(1200), true)
+        && s.sent.filter((m) => m.type === "totp").length <= 2 && !s.sent.some((m) => m.type === "used") && w.document.getElementById("otp").value === "" },
     { name: "offer: an authenticator prompt with no authenticator added gets no chip and no checks", page: "page-app.html", codes: [code("482913", 60e3)], settings: { fill: "auto" },
       check: quiet },
     { name: "offer: nothing on a page without a code box, and no checks asked for", page: "page-login.html", codes: [code("482913", 60e3)], settings: { fill: "auto" },

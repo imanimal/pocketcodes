@@ -8,7 +8,8 @@
    It goes by how the page says it sent the code (fill.js's channel): an email (or a page that doesn't say) gets the
    inboxes' codes; a text gets only codes from texts, and no chip at all unless texts reach PocketCodes (a Mac's
    Messages, or forwarding to an inbox); an authenticator app gets this site's authenticator code, if one was added,
-   and never a wait. The background answers that from the frame's own address, so a page only sees its own site's.
+   and never a wait (a Duo passcode is one of these, on Duo's own page; filling it moves Duo's count on). The
+   background answers that from the frame's own address, so a page only sees its own site's.
    Nothing on the page is read except the boxes and the text of the form around them (fill.js), and nothing from the
    page is sent anywhere. All a page can see is the host element and its data-state (waiting, idle or code). */
 (function (g) {
@@ -19,6 +20,7 @@
 
   const doc = g.document;
   const WINDOW = 36; // fast checks per code box: every 5 s for 3 minutes
+  const DUO_PAGE = /^api-[a-z0-9-]+\.duo(?:security|federal)\.com$/;
   let host = null, shadow = null, chip = null, lcd = null, label = null, sub = null, key = null;
   let targets = [], target = null, via = "", offer = null, state = "off", settings = PC.DEFAULTS;
   const dismissed = new Set();
@@ -127,7 +129,8 @@
     lcd.classList.toggle("busy", next === "waiting");
     if (next === "code") {
       label.textContent = group(offer.code);
-      sub.textContent = offer.totp ? `${offer.from} · authenticator · ${offer.left} s left` : `${offer.from} · ${offer.email} · ${PC.ago(offer.at)}`;
+      sub.textContent = offer.counter != null ? `${offer.from} · Duo passcode`
+        : offer.totp ? `${offer.from} · authenticator · ${offer.left} s left` : `${offer.from} · ${offer.email} · ${PC.ago(offer.at)}`;
       key.textContent = "Fill";
       key.hidden = false;
     } else {
@@ -144,8 +147,11 @@
   function use() {
     if (!offer || !target) return false;
     if (!PC.fill.fill(offer.code, [target])) return false;
-    if (offer.totp) { totpUsed = true; clearTimeout(totpTimer); } // the box has it: no next code over the top of it
-    else api.runtime.sendMessage({ type: "used", id: offer.id }).catch(() => {});
+    if (offer.totp) {
+      totpUsed = true; clearTimeout(totpTimer); // the box has it: no next code over the top of it
+      // a Duo code is good until used, so the next sign-in needs the next one
+      if (offer.counter != null) api.runtime.sendMessage({ type: "used", totp: offer.tid, counter: offer.counter }).catch(() => {});
+    } else api.runtime.sendMessage({ type: "used", id: offer.id }).catch(() => {});
     dismissed.add(offer.id);
     offer = null;
     waitDismissed = true; // the box has its code: nothing more to wait for until a new box appears
@@ -176,9 +182,9 @@
     const r = await api.runtime.sendMessage({ type: "totp" }).catch(() => null);
     const t = r && r.codes && r.codes.find((x) => x.code);
     if (!t) return null;
-    // a new code every period: look again as this one runs out
-    totpTimer = setTimeout(() => refresh().catch(() => {}), (t.left + 0.5) * 1000);
-    return { id: `${t.id}:${t.code}`, code: t.code, from: t.name, left: t.left, totp: true };
+    // a new code every period: look again as this one runs out (a Duo code has no clock)
+    if (t.left != null) totpTimer = setTimeout(() => refresh().catch(() => {}), (t.left + 0.5) * 1000);
+    return { id: `${t.id}:${t.code}`, tid: t.id, code: t.code, from: t.name, left: t.left, counter: t.counter, totp: true };
   }
 
   async function refresh() {
@@ -232,6 +238,8 @@
     const active = doc.activeElement;
     target = targets.find((t) => (t.el || null) === active || (t.els && t.els.includes(active))) || targets[0] || null;
     via = target ? PC.fill.channel(target) : "";
+    // Duo's own page never emails a code: a box there that isn't for a text is for a Duo passcode
+    if (target && via !== "sms" && DUO_PAGE.test(g.location.hostname)) via = "app";
     // a box that wasn't there before (the next step of a sign-in) starts a fresh wait
     if (targets.length && !before.length) {
       waitDismissed = false;

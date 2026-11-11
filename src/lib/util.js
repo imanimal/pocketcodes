@@ -6,7 +6,8 @@
    Storage is all storage.local. Only the background script writes the first group, so reads never race a write;
    the pages write the second group and read everything:
      accounts     [{ id, kind: google|microsoft|imap|texts, email, label, host?, port?, user?, added }]   (no secrets)
-     authenticators [{ id: totp:<site>:<label>, name, site, label, digits, period, added }]   (the keys are in the helper)
+     authenticators [{ id: totp:<site>:<label>, name, site, label, digits, period, added }   (the keys are in the helper)
+                     | { id: duo:<api host>, kind: duo, name, site: <api host>, added }]   (Duo passcodes, counted by use)
      tok:<id>     a Google or Microsoft account's { refresh, access, exp }
      seen:<id>    the message keys already read for that account (newest last, capped)
      st:<id>      { ok, at, error?, auth? } how that account's last check went

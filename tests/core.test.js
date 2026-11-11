@@ -108,6 +108,24 @@ test("an authenticator's otpauth link and a bare key are both read", () => {
   assert.equal(codes.otpauth("123456"), null);
 });
 
+test("Duo's activation is read from the QR code's text, the QR image's link or the emailed link", () => {
+  const want = { host: "api-b0cd41ef.duosecurity.com", code: "g2FnOKPFmFNBoHXvPt7u" };
+  const qr = "g2FnOKPFmFNBoHXvPt7u-YXBpLWIwY2Q0MWVmLmR1b3NlY3VyaXR5LmNvbQ";
+  assert.deepEqual(codes.duo(qr), want);
+  assert.deepEqual(codes.duo(" duo://" + qr + "\n"), want);
+  assert.deepEqual(codes.duo("https://api-b0cd41ef.duosecurity.com/frame/qr?value=duo%3A%2F%2F" + qr), want);
+  assert.deepEqual(codes.duo("https://api-b0cd41ef.duosecurity.com/frame/qr?value=" + encodeURIComponent("https://m-b0cd41ef.duosecurity.com/activate/g2FnOKPFmFNBoHXvPt7u")), want);
+  assert.deepEqual(codes.duo("https://m-b0cd41ef.duosecurity.com/activate/g2FnOKPFmFNBoHXvPt7u"), want);
+  assert.deepEqual(codes.duo("https://m-1a2b3c4d.duofederal.com/android/ABCDEFGHIJ1234567890"), { host: "api-1a2b3c4d.duofederal.com", code: "ABCDEFGHIJ1234567890" });
+  // the host comes from the code itself, and it has to be one of Duo's
+  assert.equal(codes.duo("g2FnOKPFmFNBoHXvPt7u-" + btoa("api-1.example.com").replace(/=+$/, "")), null);
+  assert.equal(codes.duo("https://m-b0cd41ef.example.com/activate/g2FnOKPFmFNBoHXvPt7u"), null);
+  assert.equal(codes.duo("https://m-b0cd41ef.duosecurity.com/activate/"), null);
+  assert.equal(codes.duo("JBSWY3DPEHPK3PXP"), null, "an ordinary authenticator key isn't Duo's");
+  assert.equal(codes.duo("482913"), null);
+  assert.equal(codes.duo(""), null);
+});
+
 test("sites are bare host names, and subdomains count as the site", () => {
   assert.equal(codes.site("https://www.GitHub.com/login?x=1"), "github.com");
   assert.equal(codes.site("accounts.google.com"), "accounts.google.com");

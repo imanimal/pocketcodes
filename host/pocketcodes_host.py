@@ -13,7 +13,10 @@ Requests are { id, op, ... }; answers are { re: id, ok: true, ... } or { re: id,
   remove  { acct }                              forgets the account and its password
   poll    { acct, since, limit }                -> { messages: [{ key, from, subject, text, html?, at }] }
   totp-add { acct, secret, digits?, period?, algo? }  checks the authenticator key, keeps it -> { code, left }
+  duo-add { acct, host, code }                  activates PocketCodes as a Duo Mobile device -> { code, counter, name }
   totp    { acct }                              -> { code, left } the authenticator's code now, seconds it has left
+                                                   (a Duo one: { code, counter }, good until it's used)
+  hotp-used { acct, counter }                   that Duo code was filled or copied: move on to the next one
   texts   { since, limit }                      -> { messages } the Mac's own Messages (texts the iPhone forwards)
 A message's key is i:<acct>:<uidvalidity>:<uid> (t:<rowid> for a text); `html` is sent only when a message has no
 plain-text part. An authenticator key is kept in the vault like a password and never sent back: only its codes are.
@@ -35,6 +38,9 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from email import policy
 
 VERSION = "0.2.0"
@@ -250,7 +256,7 @@ class Mailbox:
         return out
 
 
-# ── authenticator codes (RFC 6238) ──
+# ── authenticator codes (RFC 4226 and 6238) ──
 
 ALGOS = {"SHA1": hashlib.sha1, "SHA256": hashlib.sha256, "SHA512": hashlib.sha512}
 
@@ -266,13 +272,70 @@ def b32key(secret):
     return key
 
 
+def hotp(key, counter, digits=6, algo="SHA1"):
+    """The code for `key` at `counter` (RFC 4226)."""
+    mac = hmac.new(key, struct.pack(">Q", counter), ALGOS.get(algo, hashlib.sha1)).digest()
+    o = mac[-1] & 0x0F
+    n = (struct.unpack(">I", mac[o:o + 4])[0] & 0x7FFFFFFF) % (10 ** digits)
+    return str(n).zfill(digits)
+
+
 def totp(key, at=None, digits=6, period=30, algo="SHA1"):
     """(code, seconds left) for `key` at time `at` (now)."""
     at = time.time() if at is None else at
-    mac = hmac.new(key, struct.pack(">Q", int(at // period)), ALGOS.get(algo, hashlib.sha1)).digest()
-    o = mac[-1] & 0x0F
-    n = (struct.unpack(">I", mac[o:o + 4])[0] & 0x7FFFFFFF) % (10 ** digits)
-    return str(n).zfill(digits), int(period - at % period)
+    return hotp(key, int(at // period), digits, algo), int(period - at % period)
+
+
+# ── Duo passcodes ──
+# A school's or company's Duo account has no key to copy: Duo Mobile gets one when it's activated as a device. The
+# helper activates PocketCodes the same way, as one more device on the account (a tablet, so the phone keeps its
+# own): the code in Duo's "add a device" QR code goes to the activation request Duo Mobile makes, and the answer's
+# hotp_secret, as text, is the key for RFC 4226 codes counted from 0. Duo takes a code until it or a later one has
+# been used, so the count moves on only when a code is filled or copied (hotp-used). This isn't an interface Duo
+# documents; it's what Duo Mobile itself sends.
+
+DUO_HOST = re.compile(r"api-[a-z0-9-]+\.duo(?:security|federal)\.com")
+DUO_CODE = re.compile(r"[A-Za-z0-9]{10,64}")
+# how Duo Mobile on an Android tablet describes itself; the model is what Duo's device list shows
+DUO_DEVICE = {"jailbroken": "false", "architecture": "arm64", "region": "US", "app_id": "com.duosecurity.duomobile",
+              "full_disk_encryption": "true", "passcode_status": "true", "platform": "Android", "app_version": "4.70.0",
+              "app_build_number": "470000", "version": "14", "manufacturer": "unknown", "language": "en",
+              "model": "PocketCodes", "security_patch_level": "2025-01-01"}
+DUO_AHEAD = 20  # how far past the current count a "used" may move it
+
+
+def duo_post(url, form):
+    """POSTs a form to Duo: (HTTP status, body)."""
+    req = urllib.request.Request(url, data=urllib.parse.urlencode(form).encode("ascii"), method="POST",
+                                 headers={"User-Agent": "okhttp/2.7.5", "Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        with urllib.request.urlopen(req, timeout=20, context=ssl.create_default_context()) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+    except (urllib.error.URLError, OSError) as e:
+        raise Fail(f"Couldn't reach Duo ({_short(getattr(e, 'reason', e))}).")
+
+
+def duo_activate(host, code, post=None):
+    """Activates a device with Duo: (hotp_secret, the organization's name)."""
+    if not DUO_HOST.fullmatch(host or "") or not DUO_CODE.fullmatch(code or ""):
+        raise Fail("That isn't a Duo activation code. Copy the QR code's link again.")
+    status, body = (post or duo_post)(f"https://{host}/push/v2/activation/{code}?customer_protocol=1", DUO_DEVICE)
+    try:
+        res = json.loads(body.decode("utf-8"))
+    except (ValueError, UnicodeError, AttributeError):
+        res = None
+    if not isinstance(res, dict):
+        raise Fail(f"Duo answered with something PocketCodes doesn't understand (HTTP {status}).")
+    if res.get("stat") != "OK":
+        why = res.get("message_detail") or res.get("message") or f"HTTP {status}"
+        raise Fail(f"Duo didn't take that code ({why}). An activation code works once, for a day: ask Duo for a new one.")
+    r = res.get("response") or {}
+    if not isinstance(r.get("hotp_secret"), str) or not r["hotp_secret"]:
+        raise Fail("Duo added PocketCodes as a device but sent no passcode key, so it can't make Duo codes. "
+                   "Remove the new device in Duo's device list.")
+    return r["hotp_secret"], str(r.get("customer_name") or "")
 
 
 # ── texts on a Mac ──
@@ -340,11 +403,23 @@ def _short(e):
 # ── the helper ──
 
 class Helper:
-    def __init__(self, vault=None, opener=None):
+    def __init__(self, vault=None, opener=None, post=None):
         self.vault = vault or Vault()
         self.opener = opener
+        self.post = post
         self.boxes = {}
         self.lock = threading.Lock()
+        self.count_lock = threading.Lock()  # a Duo code's count is read, moved on and written back as one step
+
+    def otp(self, acct):
+        raw = self.vault.get(acct)
+        if not raw:
+            raise Fail("The helper doesn't have this authenticator's key. Remove it and add it again.", auth=True)
+        return json.loads(raw)
+
+    @staticmethod
+    def duo_code(conf):
+        return {"code": hotp(conf["secret"].encode("utf-8"), conf["counter"], conf.get("digits", 6)), "counter": conf["counter"]}
 
     def box(self, acct):
         with self.lock:
@@ -361,7 +436,7 @@ class Helper:
         op = req.get("op")
         if op == "hello":
             return {"version": VERSION, "os": {"Darwin": "macOS"}.get(SYSTEM, SYSTEM), "data": data_dir(),
-                    "texts": SYSTEM == "Darwin", "totp": True}
+                    "texts": SYSTEM == "Darwin", "totp": True, "duo": True}
         if op == "totp-add":
             acct = str(req.get("acct") or "")
             conf = {"secret": base64.b32encode(b32key(req.get("secret"))).decode("ascii"),
@@ -372,13 +447,33 @@ class Helper:
             self.vault.put(acct, json.dumps(conf))
             code, left = totp(b32key(conf["secret"]), None, conf["digits"], conf["period"], conf["algo"])
             return {"code": code, "left": left}
+        if op == "duo-add":
+            acct = str(req.get("acct") or "")
+            if not acct.startswith("duo:"):
+                raise Fail("That isn't a Duo account PocketCodes can add.")
+            secret, name = duo_activate(str(req.get("host") or ""), str(req.get("code") or ""), self.post)
+            conf = {"kind": "hotp", "secret": secret, "counter": 0, "digits": 6}
+            with self.count_lock:
+                self.vault.put(acct, json.dumps(conf))
+            return dict(self.duo_code(conf), name=name)
         if op == "totp":
-            raw = self.vault.get(str(req.get("acct") or ""))
-            if not raw:
-                raise Fail("The helper doesn't have this authenticator's key. Remove it and add it again.", auth=True)
-            conf = json.loads(raw)
+            conf = self.otp(str(req.get("acct") or ""))
+            if conf.get("kind") == "hotp":
+                return self.duo_code(conf)
             code, left = totp(b32key(conf["secret"]), None, conf["digits"], conf["period"], conf["algo"])
             return {"code": code, "left": left}
+        if op == "hotp-used":
+            acct = str(req.get("acct") or "")
+            with self.count_lock:
+                conf = self.otp(acct)
+                if conf.get("kind") != "hotp":
+                    raise Fail("That authenticator's codes go by the clock, not by use.")
+                used = int(req.get("counter") if req.get("counter") is not None else -1)
+                # a code already passed changes nothing; one too far ahead isn't one PocketCodes gave out
+                if conf["counter"] <= used <= conf["counter"] + DUO_AHEAD:
+                    conf["counter"] = used + 1
+                    self.vault.put(acct, json.dumps(conf))
+                return self.duo_code(conf)
         if op == "texts":
             since = int(req.get("since") or (time.time() - 1800) * 1000)
             return {"messages": read_texts(since, max(1, min(50, int(req.get("limit") or 20))))}

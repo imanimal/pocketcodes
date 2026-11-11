@@ -5,7 +5,8 @@
    extension (the browser enforces that through allowed_origins / allowed_extensions in the helper's manifest).
 
    The wire format is one JSON object per message. Requests: { id, op, ... }. Answers: { re: id, ok: true, ... } or
-   { re: id, error, auth?, code? }. Ops: hello, add, remove, poll (host/pocketcodes_host.py). One port stays open
+   { re: id, error, auth?, code? }. Ops: hello, add, remove, poll here; totp-add, duo-add, totp, hotp-used for
+   authenticators (inbox.js) and texts (texts.js), all listed in host/pocketcodes_host.py's header. One port stays open
    while the browser needs it, so the helper keeps its IMAP connections between checks. */
 (function (g) {
   const PC = (g.PC = g.PC || {});

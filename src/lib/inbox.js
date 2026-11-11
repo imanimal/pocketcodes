@@ -89,12 +89,39 @@
     return { entry, code: r.code };
   }
 
+  /** Makes PocketCodes one more Duo Mobile device on an organization's Duo account, from Duo's "add a device" QR
+      code or activation link. The helper activates it and keeps the key; resolves with { entry, code }. */
+  async function addDuo({ link, name }) {
+    const d = PC.codes.duo(link);
+    if (!d) throw new Error("That isn't Duo's activation QR code or link. Right-click the QR code, copy its image link, and paste that.");
+    const id = `duo:${d.host}`;
+    const r = await PC.imap.call({ op: "duo-add", acct: id, host: d.host, code: d.code }, 30000);
+    name = String(name || "").trim().slice(0, 60) || String(r.name || "").slice(0, 60) || "Duo";
+    // the passcode box is on Duo's own page for the organization, so that's the site
+    const entry = { id, kind: "duo", name, site: d.host, label: "", added: Date.now() };
+    await PC.mutex("authenticators", async () => {
+      const list = (await authenticators()).filter((x) => x.id !== id);
+      list.push(entry);
+      await PC.store.set("authenticators", list);
+    });
+    return { entry, code: r.code };
+  }
+
+  /** A Duo code (`counter`) was filled or copied, so the next one is due. From a page, only that page's own. */
+  async function usedTotp(id, counter, page) {
+    const x = (await authenticators()).find((a) => a.id === id);
+    if (!x || x.kind !== "duo" || !Number.isInteger(counter)) return;
+    if (page && !PC.codes.sameSite(new URL(page).hostname.toLowerCase(), x.site)) return;
+    await PC.imap.call({ op: "hotp-used", acct: id, counter }, 8000);
+  }
+
   async function removeTotp(id) {
     await PC.imap.remove(id);
     await PC.mutex("authenticators", async () => PC.store.set("authenticators", (await authenticators()).filter((x) => x.id !== id)));
   }
 
-  /** The current codes of the authenticators for `host` (or the one `id`, or all): [{ id, name, site, label, code, left }]. */
+  /** The current codes of the authenticators for `host` (or the one `id`, or all): [{ id, name, site, label, code, left }],
+      or for a Duo one { …, code, counter }: no clock, it holds until it's used. */
   async function totpCodes({ host, id } = {}) {
     const list = (await authenticators()).filter((x) => (id ? x.id === id : host ? PC.codes.sameSite(String(host).toLowerCase().replace(/^www\./, ""), x.site) : true));
     const out = [];
@@ -223,5 +250,5 @@
     await badge();
   });
 
-  PC.inbox = { poll, addOAuth, addImap, addTexts, addTotp, removeTotp, totpCodes, removeAccount, newest, badge, mark, readOne, keep, LOOK_BACK };
+  PC.inbox = { poll, addOAuth, addImap, addTexts, addTotp, addDuo, usedTotp, removeTotp, totpCodes, removeAccount, newest, badge, mark, readOne, keep, LOOK_BACK };
 })(globalThis);

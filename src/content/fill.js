@@ -10,8 +10,9 @@
    roots are searched too. Filling goes through the input's native setter and fires input and change events, so
    React, Vue and plain forms all see it.
    channel(target) says how the page sent the code, from the box's own attributes and then the text around it (the
-   largest block around the box under 1500 characters): "email", "sms" (a text to a phone) or "app" (an
-   authenticator), whichever the text names first, or "" when it doesn't say. Nothing read here leaves the page. */
+   largest block around the box under 1500 characters, or the first one holding its heading that says how):
+   "email", "sms" (a text to a phone) or "app" (an authenticator), whichever the text names first, or "" when it
+   doesn't say. Nothing read here leaves the page. */
 (function (g) {
   const PC = (g.PC = g.PC || {});
   if (PC.fill) return;
@@ -29,6 +30,7 @@
     sms: /\b(?:sms|texted|text(?:ed)? (?:message|you)|(?:a|by|via) text|sent (?:\w+ ){0,5}to (?:your )?(?:phone|mobile|cell)|(?:phone|mobile|cell)(?: phone)? number|(?:phone|number) ending)\b|(?:\+\d{1,3}[\s.-]?)?\(?[•*x]{3}\)?[\s.-]?[•*x]{3}[\s.-]?[•*x]{0,2}\d{2,4}\b/i,
     app: /\b(?:authenticator|authentication app|auth app|authy|duo mobile|totp|code generator|(?:your|the|an?) (?:\w+ ){0,2}(?:security |authentication |2fa |mfa |verification )?app\b(?! store))/i,
   };
+  const HEADING = "h1, h2, h3, h4, h5, h6, [role=heading], legend";
 
   const norm = (s) => String(s || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_\-.[\]:]+/g, " ").toLowerCase();
 
@@ -125,29 +127,34 @@
     });
   }
 
-  /** The text of the largest block around the target that holds no other text box and stays under 1500 characters
-      (its heading and help text, but not a newsletter form in the footer). */
+  /** "email", "sms" or "app": the one the text names first, or "". */
+  function first(text) {
+    let pick = "", at = Infinity;
+    for (const k in VIA) { const m = VIA[k].exec(text); if (m && m.index < at) { pick = k; at = m.index; } }
+    return pick;
+  }
+
+  /** The text of the block around the target: the largest that holds no other text box and stays under 1500
+      characters (its heading and help text, but not a newsletter form in the footer), or a smaller one that already
+      holds a heading above the box and says how the code came, so a header's "get the app" can't outvote it. React
+      pages wrap a box deep (Stripe's heading is 9 levels up, PayPal's 10), so the climb goes up to 24. */
   function context(t) {
     const mine = t.el ? [t.el] : t.els;
     // up through the elements, and out of a shadow root to its host
     const up = (x) => x.parentElement || (x.parentNode && x.parentNode.host) || null;
-    let best = "", n = up(mine[0]);
-    for (let i = 0; i < 8 && n && n !== mine[0].ownerDocument.documentElement; i++, n = up(n)) {
+    let best = "", from = mine[0], n = up(from);
+    for (let i = 0; i < 24 && n && n !== mine[0].ownerDocument.documentElement; i++, from = n, n = up(n)) {
       const text = textOf(n);
       if (text.length > 1500 || [...n.querySelectorAll("input")].some((x) => !mine.includes(x) && usable(x))) break;
       best = text;
+      if (first(text) && [...n.querySelectorAll(HEADING)].some((h) => h.compareDocumentPosition(from) & 4 /* box after it */)) break;
     }
     return best;
   }
 
-  /** "email", "sms" or "app": the one the text names first. Bare words in the box's attributes win outright. */
+  /** How the code was sent, from the text around the box. Bare words in the box's attributes win outright. */
   function channel(t) {
     const el = t.el || t.els[0];
-    const first = (text) => {
-      let pick = "", at = Infinity;
-      for (const k in VIA) { const m = VIA[k].exec(text); if (m && m.index < at) { pick = k; at = m.index; } }
-      return pick;
-    };
     const own = norm([el.name, el.id, el.placeholder, el.getAttribute("aria-label"), labelText(el)].join(" "));
     return first(own.replace(/\b(?:email|sms|text|app)\b/g, (w) => ({ email: "email", sms: "sms", text: "text message", app: "authenticator" })[w])) || first(context(t));
   }

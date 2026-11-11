@@ -98,6 +98,14 @@
   <div><h2>Enter code</h2><p>Enter the code displayed in the Microsoft Authenticator app on your mobile device</p><form><input type="tel" name="otc" placeholder="Code" data-hit></form></div>
 </section>
 
+<section data-want="one" data-via="app" data-note="Duo passcode prompt (on Duo's own page, offer.js treats any non-text box as Duo's)">
+  <div><h2>Enter a passcode</h2><p>Enter the passcode from Duo Mobile or a hardware token.</p><form><label for="passcode-input">Passcode</label><input id="passcode-input" name="passcode-input" type="text" inputmode="numeric" data-hit><button type="button">Verify</button></form></div>
+</section>
+
+<section data-want="one" data-via="sms" data-note="Duo's text-message passcode">
+  <div><h2>Enter passcode</h2><p>We sent a passcode by text message to XXX-XXX-1234.</p><form><label for="sms-passcode">Passcode</label><input id="sms-passcode" name="passcode-input" type="text" inputmode="numeric" data-hit></form></div>
+</section>
+
 <section data-want="one" data-via="email" data-note="email first, a text offered as the fallback">
   <div><h2>Check your email</h2><p>We sent a code to j•••@example.com. Didn't get it? Send a text message instead.</p><form><input name="otp" maxlength="6" data-hit></form></div>
 </section>
@@ -112,6 +120,18 @@
 
 <section data-want="one" data-via="email" data-note="a phone's authenticator isn't mentioned; mobile app download link isn't a text">
   <div><p>Enter the code we emailed you. Get our mobile app for faster sign-in.</p><form><input name="otp" maxlength="6" data-hit></form></div>
+</section>
+
+<section data-want="split" data-via="app" data-note="six boxes 10 levels below the heading, which sits outside the form (PayPal style)">
+  <div><header></header><div><h2>Enter the code from your authenticator app</h2></div><div><form><div><div><div><div><div id="otpCode"><div class="row" role="group" aria-label="Enter security code"><div><input inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" aria-label="Digit 1 of 6" data-hit></div><div><input inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" aria-label="Digit 2 of 6" data-hit></div><div><input inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" aria-label="Digit 3 of 6" data-hit></div><div><input inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" aria-label="Digit 4 of 6" data-hit></div><div><input inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" aria-label="Digit 5 of 6" data-hit></div><div><input inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" aria-label="Digit 6 of 6" data-hit></div></div></div></div></div></div></div><label><input type="checkbox" checked> Remember this device</label><button>Submit</button></form></div><button type="button">More Options</button></div>
+</section>
+
+<section data-want="one" data-via="sms" data-note="a box 9 levels below its heading (Stripe style)">
+  <div><div><h1>We sent a text to your phone</h1><div>Enter the verification code we sent to your number ending in *3401.</div></div><div><div><div><div><div><div><div aria-label="Verification code"><div><input type="tel" inputmode="numeric" autocomplete="one-time-code" maxlength="6" aria-label="Verification code" data-hit></div></div></div></div></div><a role="button">Resend code in 21 seconds</a></div></div></div></div>
+</section>
+
+<section data-want="one" data-via="email" data-note="a header's app link above the prompt's own heading">
+  <div><nav><a href="#">Get the app</a></nav><div><h2>Check your email</h2><p>We emailed you a code.</p><form><input name="otp" maxlength="6" data-hit></form></div></div>
 </section>
 
 <!-- the quiet cases: none of these may be offered a code -->

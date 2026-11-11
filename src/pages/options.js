@@ -53,9 +53,29 @@
     <div class="copy"><input type="text" readonly value="${esc(CMD)}" aria-label="Command"><button data-act="copyCmd">Copy</button></div>`;
 
   function totpRow(t) {
+    const duo = t.kind === "duo";
     const rm = ui.armed === t.id ? `<button data-act="removeTotp" data-id="${esc(t.id)}" class="bad sm">Remove? Press again</button>` : `<button data-act="removeTotp" data-id="${esc(t.id)}" class="sm">Remove</button>`;
-    return `<div class="acct box"><div class="who"><span><span class="tag">Authenticator</span><b>${esc(t.name)}</b></span><span class="quiet">${esc(t.site)}${t.label ? " · " + esc(t.label) : ""}</span></div>
+    return `<div class="acct box"><div class="who"><span><span class="tag">${duo ? "Duo" : "Authenticator"}</span><b>${esc(t.name)}</b></span><span class="quiet">${duo ? "Duo Mobile passcodes" : esc(t.site) + (t.label ? " · " + esc(t.label) : "")}</span></div>
       <div class="row">${rm}</div></div>`;
+  }
+
+  function duoForm() {
+    const h = ui.helper;
+    const missing = h && ((!h.ok && (h.code === "no-host" || h.code === "old-host")) || (h.ok && !h.duo));
+    return `<form class="box" data-form="duo" autocomplete="off">
+      ${missing ? `<div class="box">${h.ok ? "<p>The helper on this computer is older than Duo support.</p>" : ""}${helperSteps()}${helperLine()}</div>` : ""}
+      <p>Nothing on a computer can read Duo Mobile on your phone, so PocketCodes signs up as a second Duo Mobile of its own.</p>
+      <ol>
+        <li>Sign in to something that uses your Duo. On the Duo page, choose <b>Other options</b>, then <b>Manage devices</b>, and add a device.</li>
+        <li>Add <b>Duo Mobile</b> as a <b>tablet</b>, so the phone you have now keeps working.</li>
+        <li>When Duo shows the QR code, right-click it and copy the image's link (<b>Copy Image Link</b> in Firefox, <b>Copy image address</b> in Chrome), then paste it below. A link Duo emails you works too.</li>
+      </ol>
+      <label>QR code link or activation link<input type="text" name="link" required autocomplete="off" spellcheck="false" placeholder="https://api-…duosecurity.com/frame/qr?value=…"></label>
+      <label>Name (optional)<input type="text" name="name" placeholder="My school"></label>
+      <p class="quiet">Duo's passcodes then show by the passcode box on Duo's page and in the toolbar list. Each one works once and doesn't run out. Your school decides whether you can add devices and use passcodes, and Duo doesn't officially support doing this.</p>
+      <div class="row"><button class="go" type="submit" ${ui.working === "duo" ? "disabled" : ""}>${ui.working === "duo" ? "Adding it to Duo…" : "Add Duo"}</button>
+        <button type="button" data-act="cancelDuo">Cancel</button></div>
+    </form>`;
   }
 
   function totpForm() {
@@ -145,9 +165,9 @@
         <div class="in steps">
           <div class="step"><span class="n ${S.auth.length ? "done" : ""}">A</span><h3>Authenticator codes</h3>
             <div class="body">
-              <p>For sites that ask for the code in an authenticator app. Add a site's key once and its code shows by the box, and in the toolbar list, with no phone needed. Free, through the same helper as iCloud.</p>
+              <p>For sites that ask for the code in an authenticator app. Add a site's key once and its code shows by the box, and in the toolbar list, with no phone needed. Free, through the same helper as iCloud. Duo, the one many schools use, works too.</p>
               <p class="status ${ui.moreBad ? "bad" : "good"}" role="status">${esc(ui.moreNote || "")}</p>
-              ${ui.addTotp ? totpForm() : `<div class="row"><button data-act="showTotp" class="go">Add an authenticator</button></div>`}
+              ${ui.addTotp ? totpForm() : ui.addDuo ? duoForm() : `<div class="row"><button data-act="showTotp" class="go">Add an authenticator</button><button data-act="showDuo">Add Duo</button></div>`}
               ${S.auth.map(totpRow).join("")}
               <p class="quiet">With an authenticator on this computer, someone who gets into it has both your password and your code. That's the trade for the convenience; leave out the accounts that matter most.</p>
             </div></div>
@@ -217,7 +237,7 @@
     ui.helper = { ok: false, text: "Checking…" }; draw();
     const r = await PC.send({ type: "helper" });
     ui.helper = r && r.ok
-      ? r.helper.totp ? { ok: true, text: `Installed: version ${r.helper.version} on ${r.helper.os}.` }
+      ? r.helper.totp ? { ok: true, duo: !!r.helper.duo, text: `Installed: version ${r.helper.version} on ${r.helper.os}.` }
         : { ok: false, code: "old-host", text: `Installed, but version ${r.helper.version} is too old for authenticators and texts: run the command again, then restart Firefox.` }
       : { ok: false, code: r && r.code, text: (r && r.error) || "No answer." };
     draw();
@@ -257,11 +277,15 @@
     else if (a === "clear") { await PC.send({ type: "clear" }); note("Cleared."); }
     else if (a === "showTotp") { ui.addTotp = true; draw(); checkHelper(); }
     else if (a === "cancelTotp") { ui.addTotp = false; draw(); }
+    else if (a === "showDuo") { ui.addDuo = true; draw(); checkHelper(); }
+    else if (a === "cancelDuo") { ui.addDuo = false; draw(); }
     else if (a === "removeTotp") {
       if (ui.armed !== el.dataset.id) { ui.armed = el.dataset.id; draw(); return; }
       ui.armed = null;
       await PC.send({ type: "removeTotp", id: el.dataset.id });
-      ui.moreNote = "Removed, and the helper forgot its key."; ui.moreBad = false;
+      ui.moreNote = el.dataset.id.startsWith("duo:")
+        ? "Removed, and the helper forgot its key. Duo still lists the PocketCodes tablet among your devices: remove it there too."
+        : "Removed, and the helper forgot its key."; ui.moreBad = false;
       await load(); draw();
     } else if (a === "addTexts") {
       ui.working = "texts"; draw();
@@ -308,6 +332,16 @@
       ui.working = null;
       if (r && r.error) { if (r.code === "no-host" || r.code === "old-host") checkHelper(); ui.moreNote = r.error; ui.moreBad = true; draw(); return; }
       ui.addTotp = false; ui.moreNote = `Added ${r.entry.name}: its code right now is ${PC.group(r.code)}.`; ui.moreBad = false;
+      await load(); draw();
+      return;
+    }
+    if (f.dataset.form === "duo") {
+      const t = Object.fromEntries(new FormData(f));
+      ui.working = "duo"; draw();
+      const r = await PC.send(Object.assign({ type: "addDuo" }, t));
+      ui.working = null;
+      if (r && r.error) { if (r.code === "no-host" || r.code === "old-host") checkHelper(); ui.moreNote = r.error; ui.moreBad = true; draw(); return; }
+      ui.addDuo = false; ui.moreNote = `Added ${r.entry.name}. Duo's page now offers its passcodes, starting with ${PC.group(r.code)}. Finish the steps on Duo's page if it's still waiting.`; ui.moreBad = false;
       await load(); draw();
       return;
     }

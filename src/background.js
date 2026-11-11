@@ -45,7 +45,7 @@ if (typeof importScripts === "function") {
     if (totp) {
       const [t] = await PC.inbox.totpCodes({ id: totp });
       if (!t || !t.code) return { ok: false, reason: (t && t.error) || "That authenticator is gone." };
-      c = { code: t.code };
+      c = { code: t.code, totp: t.id, counter: t.counter };
     } else {
       const codes = await PC.store.get("codes", []);
       c = id ? codes.find((x) => x.id === id) : await PC.inbox.newest(codes);
@@ -65,6 +65,7 @@ if (typeof importScripts === "function") {
     }
     if (!results.some((r) => r && r.result)) return { ok: false, reason: "No code box on this page.", code: c.code };
     if (c.id) await PC.inbox.mark("used", [c.id]);
+    if (c.counter != null) await PC.inbox.usedTotp(c.totp, c.counter).catch(() => {});
     return { ok: true, code: c.code };
   }
 
@@ -74,10 +75,12 @@ if (typeof importScripts === "function") {
     addImap: (m) => PC.inbox.addImap(m).then((a) => ({ ok: true, account: a })),
     remove: (m) => PC.inbox.removeAccount(m.id).then(() => ({ ok: true })),
     seen: () => PC.inbox.mark("seen", "all").then(() => ({ ok: true })),
-    used: (m) => PC.inbox.mark("used", [m.id]).then(() => ({ ok: true })),
+    // an email or text code is marked used; a Duo code moves its count on (from a page, only that page's own Duo)
+    used: (m, page) => (m.totp ? PC.inbox.usedTotp(m.totp, m.counter, page) : PC.inbox.mark("used", [m.id])).then(() => ({ ok: true })),
     fill: (m) => fillTab(m.tabId, m.id, m.totp),
     addTexts: () => PC.inbox.addTexts().then((a) => ({ ok: true, account: a })),
     addTotp: (m) => PC.inbox.addTotp(m).then((r) => Object.assign({ ok: true }, r)),
+    addDuo: (m) => PC.inbox.addDuo(m).then((r) => Object.assign({ ok: true }, r)),
     removeTotp: (m) => PC.inbox.removeTotp(m.id).then(() => ({ ok: true })),
     // a sign-in page gets only its own site's authenticator codes (the frame's address, not what it says); the
     // popup and settings ask by id, or for all

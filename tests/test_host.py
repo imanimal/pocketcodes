@@ -219,6 +219,83 @@ class HostTest(unittest.TestCase):
             with self.assertRaises(host.Fail):
                 self.helper.handle(dict({"op": "totp-add", "acct": "totp:x:y", "secret": self.RFC_KEY}, **extra))
 
+    # ── Duo passcodes ──
+    DUO_HOST = "api-b0cd41ef.duosecurity.com"
+    DUO_ACCT = "duo:api-b0cd41ef.duosecurity.com"
+    DUO_SECRET = "1013b66b8c3fa2b9e4cfd6537c66136b"  # what Duo's hotp_secret looks like: 32 hex characters
+
+    def test_hotp_matches_the_rfc_vectors(self):
+        want = ["755224", "287082", "359152", "969429", "338314", "254676", "287922", "162583", "399871", "520489"]
+        self.assertEqual([host.hotp(b"12345678901234567890", i) for i in range(10)], want)
+
+    def fake_duo(self, answer=None, status=200):
+        """Duo's activation endpoint, answering `answer` (an activated device by default); returns what was sent."""
+        sent = []
+
+        def post(url, form):
+            sent.append((url, form))
+            body = answer if answer is not None else {"stat": "OK", "response": {
+                "akey": "DAEXAMPLE", "pkey": "DPEXAMPLE", "customer_name": "Example University", "hotp_secret": self.DUO_SECRET}}
+            return status, json.dumps(body).encode("utf-8")
+        self.helper.post = post
+        return sent
+
+    def duo_add(self, **extra):
+        return self.helper.handle(dict({"op": "duo-add", "acct": self.DUO_ACCT, "host": self.DUO_HOST, "code": "g2FnOKPFmFNBoHXvPt7u"}, **extra))
+
+    def test_duo_add_activates_a_device_and_keeps_only_the_key(self):
+        sent = self.fake_duo()
+        r = self.duo_add()
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0][0], f"https://{self.DUO_HOST}/push/v2/activation/g2FnOKPFmFNBoHXvPt7u?customer_protocol=1")
+        self.assertNotIn("pubkey", sent[0][1], "no push key: PocketCodes makes passcodes and can never approve a push")
+        # the key is hotp_secret's text as bytes, the codes counted from 0
+        self.assertEqual(r, {"code": host.hotp(self.DUO_SECRET.encode("ascii"), 0), "counter": 0, "name": "Example University"})
+        self.assertNotIn(self.DUO_SECRET, json.dumps(r))
+        self.assertIn(self.DUO_SECRET, self.vault.d[self.DUO_ACCT])
+        self.assertFalse(os.listdir(self.dir), "nothing about it lands in the data folder")
+
+    def test_duo_code_holds_until_used_then_moves_on(self):
+        self.fake_duo()
+        first = self.duo_add()
+        self.assertEqual(self.helper.handle({"op": "totp", "acct": self.DUO_ACCT}), {"code": first["code"], "counter": 0})
+        self.assertEqual(self.helper.handle({"op": "totp", "acct": self.DUO_ACCT})["counter"], 0, "showing a code doesn't use it")
+        nxt = self.helper.handle({"op": "hotp-used", "acct": self.DUO_ACCT, "counter": 0})
+        self.assertEqual(nxt, {"code": host.hotp(self.DUO_SECRET.encode("ascii"), 1), "counter": 1})
+        # the same code reported twice (copied, then filled) moves on once; a count never given out moves nothing
+        for counter in (0, 500, None):
+            self.assertEqual(self.helper.handle({"op": "hotp-used", "acct": self.DUO_ACCT, "counter": counter})["counter"], 1)
+        self.assertEqual(json.loads(self.vault.d[self.DUO_ACCT])["counter"], 1)
+        self.helper.handle({"op": "remove", "acct": self.DUO_ACCT})
+        with self.assertRaises(host.Fail):
+            self.helper.handle({"op": "totp", "acct": self.DUO_ACCT})
+
+    def test_duo_refusal_says_why_and_keeps_nothing(self):
+        self.fake_duo({"stat": "FAIL", "code": 40403, "message": "Invalid activation code"}, status=404)
+        with self.assertRaises(host.Fail) as e:
+            self.duo_add()
+        self.assertIn("Invalid activation code", str(e.exception))
+        self.fake_duo({"stat": "OK", "response": {"akey": "DAEXAMPLE"}})
+        with self.assertRaises(host.Fail):
+            self.duo_add()
+        self.fake_duo(status=502, answer="")
+        with self.assertRaises(host.Fail):
+            self.duo_add()
+        self.assertEqual(self.vault.d, {})
+
+    def test_duo_add_only_talks_to_duo(self):
+        sent = self.fake_duo()
+        for extra in ({"host": "api-b0cd41ef.example.com"}, {"host": "evil.com/x?api-1.duosecurity.com"},
+                      {"code": "short"}, {"code": "g2FnOKPFmFNBoHXv/../x"}, {"acct": "totp:example.com:you"}):
+            with self.assertRaises(host.Fail):
+                self.duo_add(**extra)
+        self.assertEqual(sent, [])
+
+    def test_hotp_used_leaves_clock_codes_alone(self):
+        self.helper.handle({"op": "totp-add", "acct": "totp:example.com:you", "secret": self.RFC_KEY})
+        with self.assertRaises(host.Fail):
+            self.helper.handle({"op": "hotp-used", "acct": "totp:example.com:you", "counter": 0})
+
     # ── texts on a Mac ──
 
     def chat_db(self, rows, seconds=False):

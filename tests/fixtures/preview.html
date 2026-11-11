@@ -17,7 +17,8 @@
     accounts: [{ id: "google:you@example.com", kind: "google", email: "you@example.com" }, { id: "imap:you@icloud.example", kind: "imap", label: "iCloud", email: "you@icloud.example" }],
     "st:google:you@example.com": { ok: true, at: now - 30e3 }, "st:imap:you@icloud.example": { ok: true, at: now - 50e3 },
     meta: { lastPoll: now - 20e3 }, settings: { page: !q.has("off") },
-    authenticators: [{ id: "totp:github.com:octocat", name: "GitHub", site: "github.com", label: "octocat", digits: 6, period: 30 }],
+    authenticators: [{ id: "totp:github.com:octocat", name: "GitHub", site: "github.com", label: "octocat", digits: 6, period: 30 },
+      { id: "duo:api-0000aaaa.duosecurity.com", kind: "duo", name: "Example University", site: "api-0000aaaa.duosecurity.com", label: "" }],
     codes: [c(1, "482913", "GitHub", "you@example.com", 40e3), c(2, "73520118", "Example Bank", "you@icloud.example", 4 * 60e3), c(3, "246810", "Discord", "you@example.com", 50 * 60e3, true)],
   };
   window.browser = {
@@ -25,8 +26,8 @@
       get: async (k) => { const ks = k == null ? Object.keys(store) : Array.isArray(k) ? k : [k]; return Object.fromEntries(ks.filter((x) => x in store).map((x) => [x, store[x]])); },
       set: async (o) => Object.assign(store, o), remove: async () => {},
     }, onChanged: { addListener() {} } },
-    runtime: { sendMessage: async (m) => (m.type === "helper" ? { ok: true, helper: { version: "0.2.0", os: "Windows", totp: true, texts: false } }
-      : m.type === "totp" ? { ok: true, codes: (store.authenticators || []).map((t, i) => Object.assign({ code: ["908172", "315264"][i % 2], left: 17 }, t)) } : { ok: true }), getURL: (p) => p },
+    runtime: { sendMessage: async (m) => (m.type === "helper" ? { ok: true, helper: { version: "0.2.0", os: "Windows", totp: true, duo: true, texts: false } }
+      : m.type === "totp" ? { ok: true, codes: (store.authenticators || []).map((t, i) => Object.assign(t.kind === "duo" ? { code: "315264", counter: 3 } : { code: "908172", left: 17 }, t)) } : { ok: true }), getURL: (p) => p },
     identity: { getRedirectURL: () => "https://0123456789abcdef.extensions.allizom.org/" },
     tabs: { create: async () => {}, query: async () => [] },
     permissions: { contains: async () => !q.has("noaccess"), request: async () => true, remove: async () => true },

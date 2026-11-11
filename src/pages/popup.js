@@ -69,11 +69,13 @@
         </li>`).join("")}</ul>`;
     }
     const left = (t) => secondsLeft(t, now);
+    // a Duo code has no clock: it's good until it's used
+    const about = (t) => (t.counter != null ? "Duo passcode" : `authenticator · <span data-left="${esc(t.id)}">${left(t)}</span> s · ${esc(t.site)}`);
     const auth = T.length ? `<ul class="codes">${T.map((t) => t.code ? `
-        <li class="card" data-totp="${esc(t.id)}" data-code="${esc(t.code)}">
+        <li class="card" data-totp="${esc(t.id)}" data-code="${esc(t.code)}" ${t.counter != null ? `data-counter="${esc(t.counter)}"` : ""}>
           <span class="lcd" aria-label="Code ${esc(t.code)}">${esc(PC.group(t.code))}</span>
           <div class="acts"><button data-act="copy" class="sm">Copy</button><button data-act="fill" class="go">Fill</button></div>
-          <div class="meta"><b>${esc(t.name)}</b> · authenticator · <span data-left="${esc(t.id)}">${left(t)}</span> s · ${esc(t.site)}</div>
+          <div class="meta"><b>${esc(t.name)}</b> · ${about(t)}</div>
         </li>` : `<li class="card old"><div class="meta"><b>${esc(t.name)}</b> · <span class="bad">${esc(t.error || "No code")}</span></div></li>`).join("")}</ul>` : "";
     const n = S.accounts.length;
     const foot = `<div class="foot"><span>${n} inbox${n === 1 ? "" : "es"}</span><span>${S.meta.lastPoll ? "Checked " + esc(PC.ago(S.meta.lastPoll, now)) : ""}</span></div>`;
@@ -90,7 +92,9 @@
       busy = false; await load(); draw();
     } else if (a === "copy") {
       try { await navigator.clipboard.writeText(li.dataset.code); say("Copied " + PC.group(li.dataset.code)); }
-      catch (e) { say("The browser wouldn't let this copy. Select the code and press Ctrl+C."); }
+      catch (e) { say("The browser wouldn't let this copy. Select the code and press Ctrl+C."); return; }
+      // a copied Duo code is as good as used: the next sign-in gets the next one (this one stays on screen)
+      if (li.dataset.counter) PC.send({ type: "used", totp: li.dataset.totp, counter: Number(li.dataset.counter) }).catch(() => {});
     } else if (a === "fill") {
       const [tab] = await api.tabs.query({ active: true, currentWindow: true });
       const r = await PC.send({ type: "fill", id: li.dataset.id, totp: li.dataset.totp, tabId: tab && tab.id });
@@ -120,7 +124,7 @@
     setInterval(async () => {
       if (!T.length) return;
       const now = Date.now();
-      if (T.some((t) => t.code && secondsLeft(t, now) <= 0)) { await totps(); draw(); return; }
+      if (T.some((t) => t.code && t.left != null && secondsLeft(t, now) <= 0)) { await totps(); draw(); return; }
       for (const el of app.querySelectorAll("[data-left]")) {
         const t = T.find((x) => x.id === el.dataset.left);
         if (t) el.textContent = String(secondsLeft(t, now));
