@@ -1,5 +1,5 @@
 /* PocketCodes: the popup. Reads storage (the background script is the only writer) and sends it messages: poll,
-   fill, used, seen, addOAuth, totp. While it is open it asks for a check every five seconds, so a code that has just
+   fill, open, used, seen, addOAuth, totp. While it is open it asks for a check every five seconds, so a code that has just
    been sent shows up as soon as the email does. Authenticators added in Settings show their current code below the
    list, counting down; the helper makes each one (the popup never sees a key). */
 (function (g) {
@@ -61,11 +61,12 @@
       body = `<div class="empty card"><span class="lcd blank">--- ---</span>
         <p>No codes in the last day. Ask the site to send one and it shows up here within seconds.</p></div>`;
     } else {
+      // a verification link shows where it goes in place of a code, with Open in place of Fill
       body = `<ul class="codes">${S.codes.slice(0, 8).map((c) => `
-        <li class="card ${now - c.at < fresh ? "" : "old"} ${c.used ? "used" : ""}" data-id="${esc(c.id)}" data-code="${esc(c.code)}">
-          <span class="lcd" aria-label="Code ${esc(c.code)}">${esc(PC.group(c.code))}</span>
-          <div class="acts"><button data-act="copy" class="sm">Copy</button><button data-act="fill" class="go">Fill</button></div>
-          <div class="meta" title="${esc(c.subject)}"><b>${esc(c.from)}</b> · ${esc(PC.ago(c.at, now))}${c.used ? " · used" : ""} · ${esc(c.email)}</div>
+        <li class="card ${now - c.at < fresh ? "" : "old"} ${c.used ? "used" : ""}" data-id="${esc(c.id)}" data-code="${esc(c.link || c.code)}">
+          ${c.link ? `<span class="lcd link" title="${esc(c.link)}" aria-label="Link to ${esc(c.host)}">${esc(c.host)}</span>` : `<span class="lcd" aria-label="Code ${esc(c.code)}">${esc(PC.group(c.code))}</span>`}
+          <div class="acts"><button data-act="copy" class="sm">Copy</button>${c.link ? `<button data-act="open" class="go">Open</button>` : `<button data-act="fill" class="go">Fill</button>`}</div>
+          <div class="meta" title="${esc(c.subject)}"><b>${esc(c.from)}</b> · ${c.link ? "verification link · " : ""}${esc(PC.ago(c.at, now))}${c.used ? " · used" : ""} · ${esc(c.email)}</div>
         </li>`).join("")}</ul>`;
     }
     const left = (t) => secondsLeft(t, now);
@@ -91,7 +92,8 @@
       await PC.send({ type: "poll", force: true }).catch(() => {});
       busy = false; await load(); draw();
     } else if (a === "copy") {
-      try { await navigator.clipboard.writeText(li.dataset.code); say("Copied " + PC.group(li.dataset.code)); }
+      const link = !!li.querySelector(".lcd.link");
+      try { await navigator.clipboard.writeText(li.dataset.code); say(link ? "Copied the link" : "Copied " + PC.group(li.dataset.code)); }
       catch (e) { say("The browser wouldn't let this copy. Select the code and press Ctrl+C."); return; }
       // a copied Duo code is as good as used: the next sign-in gets the next one (this one stays on screen)
       if (li.dataset.counter) PC.send({ type: "used", totp: li.dataset.totp, counter: Number(li.dataset.counter) }).catch(() => {});
@@ -100,6 +102,10 @@
       const r = await PC.send({ type: "fill", id: li.dataset.id, totp: li.dataset.totp, tabId: tab && tab.id });
       if (r && r.ok) { say("Filled " + PC.group(r.code)); setTimeout(() => g.close(), 700); }
       else say((r && (r.reason || r.error)) || "Couldn't fill this page.");
+    } else if (a === "open") {
+      const r = await PC.send({ type: "open", id: li.dataset.id });
+      if (r && r.ok) g.close();
+      else say((r && (r.reason || r.error)) || "Couldn't open the link.");
     } else if (a === "reauth") {
       const acct = S.accounts.find((x) => x.id === el.dataset.id);
       el.disabled = true; el.textContent = "Signing in…";

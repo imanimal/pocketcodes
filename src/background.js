@@ -69,6 +69,17 @@ if (typeof importScripts === "function") {
     return { ok: true, code: c.code };
   }
 
+  /** Opens a verification link found in the mail in a new tab, beside the tab that asked, and counts it used.
+      A sign-in page may only open a link that belongs with it (its own site's, or sent by its own site). */
+  async function openLink(id, page, tab) {
+    const c = (await PC.store.get("codes", [])).find((x) => x.id === id);
+    if (!c || !/^https?:\/\//i.test(c.link || "")) return { ok: false, reason: "That link is gone." };
+    if (page && !PC.linkFor(c, new URL(page).hostname)) return { ok: false, reason: "That link isn't for this page." };
+    await api.tabs.create(Object.assign({ url: c.link }, tab ? { index: tab.index + 1, windowId: tab.windowId } : {}));
+    await PC.inbox.mark("used", [id]);
+    return { ok: true };
+  }
+
   const handlers = {
     poll: (m) => PC.inbox.poll({ fast: !!m.fast, force: !!m.force, only: m.only }).then(() => ({ ok: true })),
     addOAuth: (m) => PC.inbox.addOAuth(m.kind, m.hint).then((a) => ({ ok: true, account: a })),
@@ -78,6 +89,10 @@ if (typeof importScripts === "function") {
     // an email or text code is marked used; a Duo code moves its count on (from a page, only that page's own Duo)
     used: (m, page) => (m.totp ? PC.inbox.usedTotp(m.totp, m.counter, page) : PC.inbox.mark("used", [m.id])).then(() => ({ ok: true })),
     fill: (m) => fillTab(m.tabId, m.id, m.totp),
+    open: (m, page, sender) => openLink(m.id, page, sender && sender.tab),
+    // closing the waiting chip on a page keeps it away from that site (the frame's own address); Settings undoes it
+    hush: (m, page) => (page ? PC.inbox.hush(new URL(page).hostname) : Promise.resolve()).then(() => ({ ok: true })),
+    unhush: () => PC.inbox.unhush().then(() => ({ ok: true })),
     addTexts: () => PC.inbox.addTexts().then((a) => ({ ok: true, account: a })),
     addTotp: (m) => PC.inbox.addTotp(m).then((r) => Object.assign({ ok: true }, r)),
     addDuo: (m) => PC.inbox.addDuo(m).then((r) => Object.assign({ ok: true }, r)),
@@ -92,7 +107,7 @@ if (typeof importScripts === "function") {
   };
 
   // what the sign-in page script may ask for; the rest is for the extension's own pages
-  const FROM_PAGES = ["poll", "used", "totp"];
+  const FROM_PAGES = ["poll", "used", "totp", "open", "hush"];
   const ours = api.runtime.getURL("");
 
   // Chrome ignores a returned Promise, so answer with sendResponse and say so with `return true`.
@@ -101,7 +116,7 @@ if (typeof importScripts === "function") {
     if (!h) return false;
     const page = sender && sender.url && !sender.url.startsWith(ours) ? sender.url : null;
     if (page && !FROM_PAGES.includes(m.type)) return false;
-    h(m, page).then(sendResponse, (e) => sendResponse({ error: String((e && e.message) || e), auth: !!(e && e.auth), code: e && e.code }));
+    h(m, page, sender).then(sendResponse, (e) => sendResponse({ error: String((e && e.message) || e), auth: !!(e && e.auth), code: e && e.code }));
     return true;
   });
 

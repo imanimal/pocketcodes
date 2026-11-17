@@ -6,7 +6,8 @@
    whenever it is needed.
 
    A provider is { signIn, fetchRecent, revoke }: signIn returns { email, tok }, and fetchRecent(account, { since,
-   skip }) returns the messages newer than `since` whose key isn't in `skip`, as { key, from, subject, text, at }. */
+   skip }) returns the messages newer than `since` whose key isn't in `skip`, as { key, from, subject, text, at } with
+   an HTML mail's `links` ([{ url, label }]) where the provider has them. */
 (function (g) {
   const PC = (g.PC = g.PC || {});
   const api = PC.api;
@@ -101,21 +102,26 @@
     const h = ((m.payload && m.payload.headers) || []).find((x) => x.name.toLowerCase() === name);
     return h ? h.value : "";
   };
-  /** The readable text of a Gmail message: its text/plain parts, else its HTML parts as text, else the snippet. */
+  /** The readable text of a Gmail message: its text/plain parts, else its HTML parts as text, else the snippet.
+      The HTML parts' links come along too (codes.js looks for a verification link among them). */
   function bodyText(part, acc) {
-    acc = acc || { plain: [], html: [] };
+    acc = acc || { plain: [], html: [], links: [] };
     if (!part) return acc;
     const type = String(part.mimeType || "").toLowerCase();
     const data = part.body && part.body.data;
     if (data && type === "text/plain") acc.plain.push(b64(data));
-    else if (data && type === "text/html") acc.html.push(PC.codes.htmlToText(b64(data)));
+    else if (data && type === "text/html") {
+      const html = b64(data);
+      acc.html.push(PC.codes.htmlToText(html));
+      acc.links.push(...PC.codes.anchors(html));
+    }
     for (const p of part.parts || []) bodyText(p, acc);
     return acc;
   }
   function normalize(m) {
     const t = bodyText(m.payload);
     const text = (t.plain.length ? t.plain : t.html).join("\n") || m.snippet || "";
-    return { key: "g:" + m.id, from: header(m, "from"), subject: header(m, "subject"), text, at: Number(m.internalDate) || Date.now() };
+    return { key: "g:" + m.id, from: header(m, "from"), subject: header(m, "subject"), text, links: t.links, at: Number(m.internalDate) || Date.now() };
   }
 
   async function fetchRecent(account, { since, skip }) {

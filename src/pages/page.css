@@ -100,6 +100,8 @@ label { display: grid; gap: 4px; color: var(--text3); font-size: 12px; font-weig
 .lcd.dim { filter: saturate(.35) brightness(.92); opacity: .8; }
 .lcd.blank { color: color-mix(in srgb, var(--lcd-ink) 30%, transparent); user-select: none; }
 .lcd.sm { font-size: 18px; padding: 4px 9px 3px; }
+/* a verification link: where it goes, in place of a code */
+.lcd.link { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 700 14px/1.6 var(--mono); letter-spacing: 0; user-select: none; }
 .card { background: var(--surface); border-radius: var(--r); box-shadow: var(--card); }
 
 /* ── popup ── */

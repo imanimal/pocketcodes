@@ -8,6 +8,7 @@
      data-want="split"  one row of split boxes (the inputs marked data-hit)
      data-want="none"   nothing at all
      data-via="email|sms|app|"   and fill.js's channel() says the code came that way ("" when the page doesn't say)
+     data-prompt="yes"  fill.js's prompt() takes it for a page that emailed a link to click (every other section: not)
      tests/fixtures/run.html loads this page in a frame and checks every section. -->
 <style>
   body { font: 14px system-ui; } section { border: 1px solid #ccc; margin: 8px; padding: 8px; }
@@ -173,6 +174,36 @@
 
 <section data-want="none" data-note="four single-letter boxes for initials, nothing about a code">
   <div class="row"><input maxlength="1" name="i1"><input maxlength="1" name="i2"><input maxlength="1" name="i3"></div>
+</section>
+
+<!-- pages with no code box that say a link was emailed: fill.js's prompt() finds the block (data-prompt="yes") -->
+<section data-want="none" data-prompt="yes" data-note="a new sign-in location to verify by an emailed link (forum style)">
+  <div><h3>Verification needed</h3><p>It looks like you're signing in from a new location.</p><p>To protect your account, we've sent a <b>verification email</b> to your registered address. Please check your email and click the link in it to verify this location, then log in again.</p></div>
+</section>
+
+<section data-want="none" data-prompt="yes" data-note="a sign-in link, said across two paragraphs">
+  <div><h2>Check your inbox</h2><p>We sent a sign-in link to j•••@example.com.</p><p>Click it to finish signing in.</p></div>
+</section>
+
+<section data-want="none" data-prompt="yes" data-note="a confirmation link has been sent">
+  <p>A confirmation link has been sent to your e-mail address.</p>
+</section>
+
+<!-- and the ones that only sound like it -->
+<section data-want="none" data-note="a sign-up form that will send a link">
+  <form><p>Subscribe and we'll email you a link to confirm.</p><input type="email" name="email" placeholder="Email"></form>
+</section>
+
+<section data-want="none" data-note="an article about links in emails">
+  <article><p>Phishing emails often ask you to click a link and sign in. Look at the address before you do.</p></article>
+</section>
+
+<section data-want="none" data-note="a forum post about an email someone sent">
+  <div><p>I sent him an email with the download link last week and never heard back.</p></div>
+</section>
+
+<section data-want="none" data-note="a hidden link prompt">
+  <div style="display:none"><p>We've sent you an email. Click the link in it to continue.</p></div>
 </section>
 
 <script>

@@ -95,6 +95,78 @@ test("invisible characters and links don't hide or fake a code", () => {
   assert.equal(code("Code", `Your co${z}de is 482${z}913 https://example.com/verify?t=999999`), "482913");
 });
 
+const link = (subject, text, links) => (codes.link({ subject, text, links }) || {}).url || null;
+
+test("a verification link is read from plain text by the words before it", () => {
+  const msg = "Hello,\n\nYou are signing in from a new location. To verify this sign-in, click the link below:\n\n"
+    + "https://forum.example.com/login.php?do=verifylocation&u=123&k=9f8a7b6c5d4e3f2a1b0c\n\n"
+    + "If you did not try to sign in, change your password:\n\nhttps://forum.example.com/profile.php?do=editpassword\n";
+  const hit = codes.link({ subject: "Verify your new sign-in location", text: msg });
+  assert.equal(hit.url, "https://forum.example.com/login.php?do=verifylocation&u=123&k=9f8a7b6c5d4e3f2a1b0c");
+  assert.equal(hit.host, "forum.example.com");
+  assert.equal(link("Please confirm", "Please confirm your email address by clicking the link below:\nhttps://u1234.ct.mailer.example/ls/click?upn=AAAAAAAAAAAAAAAAAAAAAAAAAAAA."),
+    "https://u1234.ct.mailer.example/ls/click?upn=AAAAAAAAAAAAAAAAAAAAAAAAAAAA", "a tracking address, and the full stop after it isn't part of it");
+  assert.equal(link("Sign in to Example", "Click the link below to sign in to Example. This link expires in 10 minutes.\nhttps://app.example.com/auth/magic?token=eyJhbGciOiJIUzI1NiJ9abcdef"),
+    "https://app.example.com/auth/magic?token=eyJhbGciOiJIUzI1NiJ9abcdef", "a sign-in link");
+});
+
+test("a verification link is read from an HTML mail's own links", () => {
+  const html = `<p>Confirm your email address to finish.</p><a href="https://example.com/">Example</a>
+    <a class="btn" href="https://click.mail.example.com/ls/click?upn=u001.abcdefghijklmnopqrstuvwxyz&amp;x=1"><b>Verify</b> email address</a>
+    <a href='https://example.com/unsubscribe?u=1'>Unsubscribe</a> <a href="mailto:help@example.com">Write to us</a>
+    <a href=https://example.com/app><img alt="Open the app" src="a.png"></a>`;
+  const links = codes.anchors(html);
+  assert.deepEqual(links.map((l) => l.label), ["Example", "Verify email address", "Unsubscribe", "Open the app"], "web links only, with their words or a picture's alt text");
+  assert.equal(links[1].url, "https://click.mail.example.com/ls/click?upn=u001.abcdefghijklmnopqrstuvwxyz&x=1");
+  assert.equal(link("Confirm your email", codes.htmlToText(html), links), links[1].url);
+});
+
+test("mail that only looks like it has a verification link gives none", () => {
+  assert.equal(link("Order confirmation", "Thanks for your order.\nView your order: https://shop.example.com/orders/123", [{ url: "https://shop.example.com/orders/123", label: "View your order" }]), null, "an order confirmation");
+  assert.equal(link("New sign-in to your account", "We noticed a new sign-in. If this wasn’t you, secure your account: https://accounts.example.com/secure?token=aaaaaaaaaaaaaaaaaaaaaaaaa"), null, "the link that undoes it");
+  assert.equal(link("Reset your password", "Click to reset your password: https://example.com/reset?token=abcabcabcabcabcabcabcabc"), null, "a password reset");
+  assert.equal(link("Confirm your seat!", "Confirm your seat! Click here: https://events.example.com/rsvp?id=12"), null, "nothing about the address says verify");
+  assert.equal(link("Welcome", "Your account has been verified. Log in: https://example.com/login"), null, "already verified");
+  assert.equal(link("Weekly digest", "Read more: https://example.com/verify-your-sources-article"), null, "the word is only in the address");
+  assert.equal(link("Verify your email", "Verify your email", [{ url: "https://www.facebook.com/example", label: "Verify us on Facebook" }, { url: "javascript:alert(1)", label: "Verify" }]), null, "social and non-web links");
+  assert.equal(link("Your code", "Your verification code is 482913."), null);
+});
+
+test("a sender's mail domain, and whose a host is", () => {
+  assert.equal(codes.domain('"Example" <no-reply@mail.example.com>'), "mail.example.com");
+  assert.equal(codes.domain("no-reply@Example.com"), "example.com");
+  assert.equal(codes.domain("Example"), "");
+  const { org, linkFor } = globalThis.PC;
+  assert.equal(org("mail.example.com"), "example.com");
+  assert.equal(org("forum.example.co.uk"), "example.co.uk");
+  assert.equal(org("127.0.0.1"), "127.0.0.1");
+  assert.ok(linkFor({ host: "forum.example.com", dom: "mailer.example" }, "www.example.com"), "the link goes to this site");
+  assert.ok(linkFor({ host: "click.mailer.example", dom: "mail.example.com" }, "example.com"), "this site's mail sent it");
+  assert.ok(!linkFor({ host: "example.com.evil.example", dom: "evil.example" }, "example.com"));
+  assert.ok(!linkFor({ host: "", dom: "" }, ""));
+});
+
+test("the inbox keeps a code as a code, a link mail as a link, and never a link from a text", async () => {
+  require("../src/lib/texts.js");
+  require("../src/lib/inbox.js");
+  const { PC } = globalThis;
+  const at = Date.now();
+  const verify = "To verify this sign-in, click the link below:\nhttps://forum.example.com/verify?k=9f8a7b6c5d4e3f2a1b0c9f8a";
+  PC.fake = { fetchRecent: async () => [
+    { key: "f:1", from: '"Example Forum" <no-reply@mail.example.com>', subject: "Verify your new sign-in", text: verify, at },
+    { key: "f:2", from: "Example <no-reply@example.com>", subject: "Your code", text: "Your verification code is 482913. Or click to verify: https://example.com/verify?token=aaaaaaaaaaaaaaaaaaaaaaaa", at },
+    { key: "f:3", from: "+15550100", subject: "PocketCodes text", text: verify, at },
+  ] };
+  const found = await PC.inbox.readOne({ id: "fake:you@example.com", kind: "fake", email: "you@example.com" });
+  assert.deepEqual(found.map((f) => [f.id, f.code, f.link || "", f.host || "", f.dom || ""]), [
+    ["f:1", "", "https://forum.example.com/verify?k=9f8a7b6c5d4e3f2a1b0c9f8a", "forum.example.com", "mail.example.com"],
+    ["f:2", "482913", "", "", ""],
+  ]);
+  // the Fill key's "newest code" is never a link
+  await PC.inbox.keep(found);
+  assert.equal((await PC.inbox.newest()).code, "482913");
+});
+
 test("an authenticator's otpauth link and a bare key are both read", () => {
   const a = codes.otpauth("otpauth://totp/GitHub:octo%20cat?secret=JBSW%20Y3DP-EHPK3PXP&issuer=GitHub&digits=8&period=60&algorithm=sha256");
   assert.deepEqual(a, { secret: "JBSWY3DPEHPK3PXP", issuer: "GitHub", name: "octo cat", digits: 8, period: 60, algo: "SHA256" });

@@ -12,7 +12,8 @@
    channel(target) says how the page sent the code, from the box's own attributes and then the text around it (the
    largest block around the box under 1500 characters, or the first one holding its heading that says how):
    "email", "sms" (a text to a phone) or "app" (an authenticator), whichever the text names first, or "" when it
-   doesn't say. Nothing read here leaves the page. */
+   doesn't say. prompt() finds the other kind of sign-in step, a page with no box that says it emailed a link to
+   click. Nothing read here leaves the page. */
 (function (g) {
   const PC = (g.PC = g.PC || {});
   if (PC.fill) return;
@@ -31,6 +32,11 @@
     app: /\b(?:authenticator|authentication app|auth app|authy|duo mobile|totp|code generator|(?:your|the|an?) (?:\w+ ){0,2}(?:security |authentication |2fa |mfa |verification )?app\b(?! store))/i,
   };
   const HEADING = "h1, h2, h3, h4, h5, h6, [role=heading], legend";
+
+  // a page with no code box that says it emailed a link to click: an email, that it was sent, and a link
+  const MAIL = /\b(?:e ?mail|inbox)\b/;
+  const MAILED = /\b(?:we(?:'ve| have)?(?: just)? (?:sent|e ?mailed)|(?:has|have) been sent|was sent|sent (?:you|to your)|e ?mailed you|check your (?:e ?mail|inbox|mail))\b/;
+  const LINKED = /\b(?:link|click)\b/;
 
   const norm = (s) => String(s || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_\-.[\]:]+/g, " ").toLowerCase();
 
@@ -159,6 +165,30 @@
     return first(own.replace(/\b(?:email|sms|text|app)\b/g, (w) => ({ email: "email", sms: "sms", text: "text message", app: "authenticator" })[w])) || first(context(t));
   }
 
+  /** The block of the page that says an email with a link to click was sent ("We've sent a verification email.
+      Check your email and click the link"), or null. Only a short block that says all three counts (an email, that
+      it was sent, a link), so an article about email links or a "we'll send you a link" sign-up form stays quiet.
+      It looks at the text nodes that mention a link or a click, and a few levels up from each. */
+  function prompt(root) {
+    root = root || g.document.body;
+    if (!root) return null;
+    const w = root.ownerDocument.createTreeWalker(root, 4 /* text nodes */);
+    const tried = new Set();
+    let x, n = 0;
+    while ((x = w.nextNode()) && n++ < 6000 && tried.size < 80) {
+      if (!/link|click/i.test(x.nodeValue) || /^(?:SCRIPT|STYLE|NOSCRIPT|TEMPLATE|TEXTAREA|OPTION)$/.test(x.parentNode.nodeName)) continue;
+      let el = x.parentElement;
+      if (!el || !visible(el)) continue; // words nobody can see don't make a prompt
+      for (let i = 0; i < 4 && el && root.contains(el) && !tried.has(el); i++, el = el.parentElement) {
+        tried.add(el);
+        const said = norm(textOf(el)).replace(/’/g, "'");
+        if (said.length > 600) break;
+        if (MAIL.test(said) && MAILED.test(said) && LINKED.test(said)) return el;
+      }
+    }
+    return null;
+  }
+
   function setVal(el, value) {
     el.focus();
     const proto = el instanceof g.HTMLTextAreaElement ? g.HTMLTextAreaElement.prototype : g.HTMLInputElement.prototype;
@@ -186,5 +216,5 @@
     return true;
   }
 
-  PC.fill = { find, fill, visible, isCodeBox, setVal, channel };
+  PC.fill = { find, fill, visible, isCodeBox, setVal, channel, prompt };
 })(globalThis);

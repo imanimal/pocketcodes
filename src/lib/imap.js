@@ -80,9 +80,9 @@
     revoke: async (a) => { await imap.remove(a.id); },
     async fetchRecent(a, { since, skip }) {
       const r = await call({ op: "poll", acct: a.id, since, limit: 20 });
-      // a message with no plain-text part comes as html, read the same way Gmail's are
+      // a message with no plain-text part comes as html, read the same way Gmail's are (its links kept beside the text)
       return (r.messages || []).filter((m) => !skip.has(m.key))
-        .map((m) => (!m.text && m.html ? Object.assign({}, m, { text: PC.codes.htmlToText(m.html), html: undefined }) : m));
+        .map((m) => (!m.text && m.html ? Object.assign({}, m, { text: PC.codes.htmlToText(m.html), links: PC.codes.anchors(m.html), html: undefined }) : m));
     },
   };
   PC.imap = imap;

@@ -71,15 +71,18 @@ async function detection(win) {
         if (ok && sec.dataset.via !== undefined && F.channel(found[0]) !== sec.dataset.via) { ok = false; detail = `channel "${F.channel(found[0])}", wanted "${sec.dataset.via}"`; }
       }
     }
+    // and only the sections marked for it read as "we emailed you a link to click"
+    const prompt = !!F.prompt(sec), wantPrompt = sec.dataset.prompt === "yes";
+    if (ok && prompt !== wantPrompt) { ok = false; detail = wantPrompt ? "no link prompt found" : "took it for a link prompt"; }
     report(ok, `find: ${note}`, detail);
   }
 }
 
-/** offer.js against a stand-in browser API: the chip pops up and waits, shows the code, auto-fill fills, fast checks
-    are asked for. */
+/** offer.js against a stand-in browser API: the waiting tag comes and goes, the chip shows the code, auto-fill fills,
+    fast checks are asked for, and a page that emailed a link gets the link. */
 async function offer(f) {
-  const make = (codes, settings, accounts, totp) => {
-    const store = { codes, settings, accounts };
+  const make = (codes, settings, accounts, totp, hush) => {
+    const store = { codes, settings, accounts, hush: hush || [] };
     const listeners = [];
     const sent = [];
     return {
@@ -103,6 +106,10 @@ async function offer(f) {
   const gmail = { id: "google:you@example.com", kind: "google", email: "you@example.com" };
   const mac = { id: "texts:mac", kind: "texts", email: "Texts on this Mac" };
   const quiet = async (w, s) => { await wait(800); return !chip(w) && !s.sent.some((m) => m.type === "poll") && w.document.getElementById("otp").value === ""; };
+  // the chip's own parts (the loop below opens its shadow root for this)
+  const part = (w, sel) => { const h = w.document.querySelector("pocketcodes-chip"); return h && h.shadowRoot && h.shadowRoot.querySelector(sel); };
+  const here = location.hostname.replace(/^www\./, "");
+  const link = (n, ago, host, dom) => ({ id: "g:l" + n, code: "", link: `https://${host}/verify?k=${n}`, host, dom: dom || host, from: "Example", email: "you@example.com", via: "email", at: Date.now() - ago, used: false, seen: false });
 
   const cases = [
     { name: "offer: chip by a code box when a fresh code exists", page: "page-otp.html", codes: [code("482913", 60e3)], settings: { fill: "ask" },
@@ -158,11 +165,49 @@ async function offer(f) {
       check: quiet },
     { name: "offer: nothing on a page without a code box, and no checks asked for", page: "page-login.html", codes: [code("482913", 60e3)], settings: { fill: "auto" },
       check: async (w, s) => { await wait(800); return !chip(w) && !s.sent.some((m) => m.type === "poll"); } },
+    // the waiting tag: easy to put away, and it stays away
+    { name: "offer: a click on the waiting tag puts it away and keeps it off this site, and a code that lands still shows", page: "page-otp.html", codes: [], settings: { fill: "ask" },
+      check: async (w, s) => {
+        if (!(await until(() => chip(w) === "waiting"))) return false;
+        part(w, ".note").click();
+        await wait(300);
+        if (chip(w) || !s.sent.some((m) => m.type === "hush")) return false;
+        s.push(code("864200", 1e3));
+        return until(() => chip(w) === "code");
+      } },
+    { name: "offer: no waiting tag on a site where it was closed; the checks go on and the code shows", page: "page-otp.html", codes: [], settings: { fill: "ask" }, hush: [here],
+      check: async (w, s) => { await wait(800); if (chip(w) || !s.sent.some((m) => m.type === "poll")) return false; s.push(code("975310", 1e3)); return until(() => chip(w) === "code"); } },
+    { name: "offer: the waiting tag puts itself away, and a code that lands still shows", page: "page-otp.html", codes: [], settings: { fill: "ask" }, wait: 500,
+      check: async (w, s) => (await until(() => chip(w) === "waiting")) && (await until(() => !chip(w), 2000)) && !s.sent.some((m) => m.type === "hush")
+        && (s.push(code("531086", 1e3)), until(() => chip(w) === "code")) },
+    { name: "offer: × puts a code away without hiding anything on this site", page: "page-otp.html", codes: [code("482913", 60e3)], settings: { fill: "ask" },
+      check: async (w, s) => { if (!(await until(() => chip(w) === "code"))) return false; part(w, ".x").click(); await wait(400); return !chip(w) && !s.sent.some((m) => m.type === "hush" || m.type === "used"); } },
+    // a page that says it emailed a link to click
+    { name: "offer: a page that emailed a link gets it with an Open key, never opened by itself", page: "page-link.html", codes: [link("1", 30e3, here)], settings: { fill: "auto" },
+      check: async (w, s) => {
+        if (!(await until(() => chip(w) === "link")) || s.sent.some((m) => m.type === "open")) return false;
+        if (part(w, ".code").textContent !== here) return false;
+        part(w, ".go").click();
+        await wait(300);
+        return !chip(w) && s.sent.some((m) => m.type === "open" && m.id === "g:l1");
+      } },
+    { name: "offer: a link page shows no waiting tag, asks for fast checks, and shows the link when it lands", page: "page-link.html", codes: [], settings: {},
+      check: async (w, s) => { await wait(800); if (chip(w) || !s.sent.some((m) => m.type === "poll" && m.fast)) return false; s.push(link("2", 1e3, here)); return until(() => chip(w) === "link"); } },
+    { name: "offer: a link that goes elsewhere is offered when this site's own mail sent it", page: "page-link.html", codes: [link("3", 30e3, "click.mailer.example", here)], settings: {},
+      check: async (w, s) => until(() => chip(w) === "link") },
+    { name: "offer: another site's link, or a code, is never offered on a link page", page: "page-link.html", codes: [code("482913", 20e3), link("4", 30e3, "elsewhere.example")], settings: { fill: "auto" },
+      check: async (w, s) => { await wait(800); return !chip(w) && !s.sent.some((m) => m.type === "open" || m.type === "used"); } },
+    { name: "offer: a code box never takes a link", page: "page-otp.html", codes: [link("5", 30e3, here)], settings: { fill: "auto" },
+      check: async (w, s) => { await wait(800); return chip(w) === "waiting" && w.document.getElementById("otp").value === "" && !s.sent.some((m) => m.type === "open"); } },
   ];
   for (const c of cases) {
     const w = await frameReady(f, c.page + "?" + Math.random());
-    const s = make(c.codes, Object.assign({ fresh: 10, page: true }, c.settings), c.accounts || [gmail], c.totp);
+    const s = make(c.codes, Object.assign({ fresh: 10, page: true }, c.settings), c.accounts || [gmail], c.totp, c.hush);
     w.browser = s.api;
+    // the chip's shadow root is closed to pages; open here so the cases can press its keys
+    const attach = w.Element.prototype.attachShadow;
+    w.Element.prototype.attachShadow = function () { return attach.call(this, { mode: "open" }); };
+    if (c.wait) w.PC = { SHOW_WAIT: c.wait };
     await load(w, "../../src/lib/util.js");
     await load(w, "../../src/content/fill.js");
     await load(w, "../../src/content/offer.js");

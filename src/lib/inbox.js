@@ -1,7 +1,8 @@
 /* PocketCodes: the inbox. Background only. Walks the accounts, asks each one's provider for the last half hour of
-   mail it hasn't read yet, looks for a code in each message (codes.js), and keeps the codes it finds. Nothing about
-   a message is stored except the code, the sender's name, the subject and the time; message bodies are read, searched
-   and dropped. One writer for every storage key listed in util.js's header (this file), so reads never race it. */
+   mail it hasn't read yet, looks for a code in each message (codes.js), or failing that a verification link, and
+   keeps what it finds. Nothing about a message is stored except the code or the link, the sender's name and mail
+   domain, the subject and the time; message bodies are read, searched and dropped. One writer for every storage key
+   listed in util.js's header (this file), so reads never race it. */
 (function (g) {
   const PC = (g.PC = g.PC || {});
   const api = PC.api;
@@ -10,6 +11,7 @@
   const KEEP = 24 * 60 * MIN;   // how long a found code stays in the list
   const SEEN_CAP = 300;
   const CODES_CAP = 40;
+  const HUSH_CAP = 200;
   const provider = (a) => PC[a.kind];
 
   const accounts = () => PC.store.get("accounts", []);
@@ -161,12 +163,15 @@
     const found = [];
     for (const m of msgs) {
       skip.add(m.key);
+      const text = PC.texts.isText(a, m);
       const hit = PC.codes.find(m);
-      if (!hit) continue;
-      found.push({
-        id: m.key, acct: a.id, email: a.email, kind: a.kind, code: hit.code, via: PC.texts.isText(a, m) ? "sms" : "email",
+      // a mail with no code may be the other kind: "click this link to verify" (never from a text)
+      const link = !hit && !text ? PC.codes.link(m) : null;
+      if (!hit && !link) continue;
+      found.push(Object.assign({
+        id: m.key, acct: a.id, email: a.email, kind: a.kind, code: hit ? hit.code : "", via: text ? "sms" : "email",
         from: PC.sender(m.from), subject: String(m.subject || "").slice(0, 140), at: m.at, found: Date.now(), seen: false, used: false,
-      });
+      }, link ? { link: link.url, host: link.host, dom: PC.codes.domain(m.from) } : {}));
     }
     if (msgs.length) await PC.store.set("seen:" + a.id, [...skip].slice(-SEEN_CAP));
     return found;
@@ -217,17 +222,28 @@
       try {
         await api.notifications.create("code:" + c.id, {
           type: "basic", iconUrl: api.runtime.getURL("icons/icon-128.png"),
-          title: `Code ${c.code}`, message: `${c.from} · ${c.email}${c.subject ? "\n" + c.subject : ""}`,
+          title: c.link ? `Verification link from ${c.from}` : `Code ${c.code}`,
+          message: `${c.link ? c.host : c.from} · ${c.email}${c.subject ? "\n" + c.subject : ""}`,
         });
       } catch (e) { /* notifications are a nicety */ }
     }
   }
 
-  /** The newest code that is still fresh and unused, or undefined. */
+  /** The newest code that is still fresh and unused, or undefined. A verification link isn't one. */
   async function newest(codes, now) {
     const s = await PC.store.settings();
-    return (codes || (await PC.store.get("codes", []))).find((c) => !c.used && (now || Date.now()) - c.at < s.fresh * MIN);
+    return (codes || (await PC.store.get("codes", []))).find((c) => !c.link && !c.used && (now || Date.now()) - c.at < s.fresh * MIN);
   }
+
+  /** The waiting chip was closed on `host`: it stays away there (a code or link that lands still shows). */
+  const hush = (host) => PC.mutex("hush", async () => {
+    host = String(host || "").toLowerCase().replace(/^www\./, "");
+    if (!host) return;
+    const list = (await PC.store.get("hush", [])).filter((h) => h !== host);
+    list.push(host);
+    await PC.store.set("hush", list.slice(-HUSH_CAP));
+  });
+  const unhush = () => PC.mutex("hush", () => PC.store.del(["hush"]));
 
   async function badge() {
     if (!api.action) return;
@@ -250,5 +266,5 @@
     await badge();
   });
 
-  PC.inbox = { poll, addOAuth, addImap, addTexts, addTotp, addDuo, usedTotp, removeTotp, totpCodes, removeAccount, newest, badge, mark, readOne, keep, LOOK_BACK };
+  PC.inbox = { poll, addOAuth, addImap, addTexts, addTotp, addDuo, usedTotp, removeTotp, totpCodes, removeAccount, newest, hush, unhush, badge, mark, readOne, keep, LOOK_BACK };
 })(globalThis);

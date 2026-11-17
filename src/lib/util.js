@@ -11,7 +11,10 @@
      tok:<id>     a Google or Microsoft account's { refresh, access, exp }
      seen:<id>    the message keys already read for that account (newest last, capped)
      st:<id>      { ok, at, error?, auth? } how that account's last check went
-     codes        [{ id, acct, email, kind, via: email|sms, code, from, subject, at, found, seen, used }], newest first
+     codes        [{ id, acct, email, kind, via: email|sms, code, from, subject, at, found, seen, used }], newest first;
+                  a verification link is one of these with code "" and { link, host, dom }: its address, the host
+                  it goes to, and the sender's mail domain
+     hush         [host] the sites where you closed the waiting chip, so it stays away there
      meta         { lastPoll }
      settings     the options below (DEFAULTS)
      google       { clientId, clientSecret }   your own Google Cloud OAuth client (docs in the README)
@@ -79,6 +82,24 @@
     const dom = (addr.split("@")[1] || addr).split(".");
     const base = dom.length > 1 ? dom[dom.length - 2] : dom[0];
     return base ? base[0].toUpperCase() + base.slice(1) : "Unknown sender";
+  };
+
+  /** Whose a host name is: mail.example.com → example.com, forum.example.co.uk → example.co.uk. A guess (the last
+      two labels, or three under a two-letter country's co/com/org/…), which is enough to tell a link in a mail
+      belongs with the page you're on; an address made of numbers is its own. */
+  PC.org = (host) => {
+    const h = String(host || "").toLowerCase().replace(/\.$/, "");
+    const p = h.split(".");
+    if (p.length <= 2 || /^[\d.]+$/.test(h) || h.includes(":")) return h;
+    const two = p[p.length - 1].length === 2 && /^(?:co|com|org|net|gov|edu|ac|or|ne|go)$/.test(p[p.length - 2]);
+    return p.slice(two ? -3 : -2).join(".");
+  };
+
+  /** Whether a link found in the mail (a `codes` entry with { host, dom }) belongs with a page on `host`: it goes
+      to that site, or that site's own mail sent it (mail often links through the sender's tracking address). */
+  PC.linkFor = (c, host) => {
+    const org = PC.org(String(host || "").replace(/^www\./i, ""));
+    return !!org && (PC.org(c.host) === org || PC.org(c.dom) === org);
   };
 
   /** A code as it reads best: 482913 → "482 913", 12345678 → "1234 5678"; anything else as it is. */

@@ -107,3 +107,15 @@ test("a blank build with no client of your own asks for one", async () => {
   PC.CLIENT.google = { id: "", secret: "" };
   await assert.rejects(PC.google.signIn(), /Add your own Google client/);
 });
+
+test("a Gmail message's HTML links come along with its text", () => {
+  const enc = (s) => Buffer.from(s).toString("base64url");
+  const m = PC.google.normalize({ id: "1", internalDate: "1700000000000", payload: { headers: [{ name: "From", value: "Example <no-reply@example.com>" }, { name: "Subject", value: "Confirm your email" }],
+    mimeType: "multipart/alternative", parts: [
+      { mimeType: "text/plain", body: { data: enc("Confirm your email address.") } },
+      { mimeType: "text/html", body: { data: enc('<p>Confirm your email address.</p><a href="https://example.com/c?t=1&amp;u=2">Confirm</a>') } },
+    ] } });
+  assert.equal(m.text, "Confirm your email address.", "the plain part is still the text");
+  assert.deepEqual(m.links, [{ url: "https://example.com/c?t=1&u=2", label: "Confirm" }]);
+  assert.equal(PC.codes.link(m).url, "https://example.com/c?t=1&u=2");
+});

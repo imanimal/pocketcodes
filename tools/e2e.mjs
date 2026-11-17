@@ -7,6 +7,7 @@
 //   - in "ask" mode the chip appears and the box stays empty
 //   - with no code yet the chip pops up waiting, and shows the code when it lands
 //   - a sign-in page without a code box is left alone
+//   - a page that says it emailed a link gets that link, and Open opens it in a new tab
 //   - the Fill command path (background fillTab through scripting.executeScript) fills the active tab
 //   - the IMAP helper answers, if it's installed
 // Run from the repo root:  node tools/e2e.mjs   (FIREFOX=path/to/firefox to pick a build)
@@ -132,7 +133,7 @@ try {
 
   // the fixtures in Gecko
   const fx = await tab(`${SITE}/tests/fixtures/run.html`);
-  await until(fx, () => !!window.RESULT, 30000);
+  await until(fx, () => !!window.RESULT, 60000);
   const fr = await run(fx, () => JSON.stringify(window.RESULT || { fail: -1, rows: [] }));
   check(fr.fail === 0, `fixture page in Firefox: ${fr.pass} passed`, fr.rows.filter((r) => !r.ok).map((r) => r.name + ": " + r.detail).join("; "));
   await bidi("browsingContext.close", { context: fx }); // its frames have code boxes of their own
@@ -191,6 +192,39 @@ try {
   const smsQuiet = await run(p7, () => JSON.stringify(!document.querySelector("pocketcodes-chip") || !document.querySelector("pocketcodes-chip").dataset.state));
   check(smsQuiet, "a page that texted the code gets no chip while texts don't reach PocketCodes");
 
+  // a page with no code box that says it emailed a link: the chip offers that link, and Open (the background)
+  // opens it in a new tab and counts it used. A fresh code is in the list too, and stays out of it.
+  const giveLink = (n) => run(opts, async (args) => {
+    const { n, site } = JSON.parse(args);
+    const api = globalThis.browser;
+    const cur = await api.storage.local.get("codes");
+    const c = { id: "g:e2e-link-" + n, acct: "google:you@example.com", email: "you@example.com", kind: "google", via: "email", code: "", link: `${site}/tests/fixtures/page-login.html?verified=${n}`, host: "127.0.0.1", dom: "example.com", from: "Example Forum", subject: "Verify your new sign-in", at: Date.now(), found: Date.now(), seen: false, used: false };
+    await api.storage.local.set({ codes: [c].concat(cur.codes || []) });
+    return "1";
+  }, { n, site: SITE });
+  const p9 = await tab(`${SITE}/tests/fixtures/page-link.html`);
+  await wait(1500);
+  const noTag = await run(p9, () => JSON.stringify(!(document.querySelector("pocketcodes-chip") || { dataset: {} }).dataset.state));
+  await giveLink(1);
+  const offered = await until(p9, () => (document.querySelector("pocketcodes-chip") || { dataset: {} }).dataset.state === "link");
+  check(noTag && offered, "a page that emailed a link shows nothing while it waits, then the link when it lands", `noTag=${noTag} offered=${offered}`);
+  const opened = await run(opts, async () => JSON.stringify(await globalThis.browser.runtime.sendMessage({ type: "open", id: "g:e2e-link-1" })));
+  await wait(1200);
+  const { contexts: after } = await bidi("browsingContext.getTree", {});
+  const linkUsed = await run(opts, async () => JSON.stringify((await globalThis.browser.storage.local.get("codes")).codes.find((c) => c.id === "g:e2e-link-1").used));
+  check(opened.ok && after.some((c) => c.url.endsWith("?verified=1")) && linkUsed === true, "Open opens the link in a new tab and counts it used", JSON.stringify(opened) + " used=" + linkUsed);
+
+  // closing the waiting tag from a page keeps it off that site, and Settings can bring it back
+  const hushed = await run(opts, async () => {
+    const api = globalThis.browser;
+    const [t] = await api.tabs.query({ url: "*://127.0.0.1/*page-link*" });
+    await api.scripting.executeScript({ target: { tabId: t.id }, func: () => globalThis.browser.runtime.sendMessage({ type: "hush" }) });
+    const list = (await api.storage.local.get("hush")).hush || [];
+    await api.runtime.sendMessage({ type: "unhush" });
+    return JSON.stringify({ list, after: (await api.storage.local.get("hush")).hush || [] });
+  });
+  check(hushed.list.length === 1 && hushed.list[0] === "127.0.0.1" && hushed.after.length === 0, "a page can hide the waiting tag for its own site, and Settings shows it again", JSON.stringify(hushed));
+
   const helper = await run(opts, async () => JSON.stringify(await globalThis.browser.runtime.sendMessage({ type: "helper" })));
   if (!helper.ok && helper.code === "no-host") console.log("skip  IMAP helper (not installed here)");
   else check(helper.ok, helper.ok ? `IMAP helper answers (version ${helper.helper.version})` : "IMAP helper answers", helper.error);
@@ -227,6 +261,10 @@ try {
     const ch = await tab(`${SITE}/tests/fixtures/page-otp.html?shot`);
     await until(ch, () => !!document.querySelector("pocketcodes-chip"));
     await shot(ch, "chip", 520, 220);
+    await giveLink(2);
+    const lk = await tab(`${SITE}/tests/fixtures/page-link.html?shot`);
+    await until(lk, () => (document.querySelector("pocketcodes-chip") || { dataset: {} }).dataset.state === "link");
+    await shot(lk, "chip-link", 620, 260);
     console.log(`screenshots in ${process.env.SHOTS}`);
   }
 } catch (e) {

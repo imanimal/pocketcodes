@@ -19,7 +19,10 @@
     meta: { lastPoll: now - 20e3 }, settings: { page: !q.has("off") },
     authenticators: [{ id: "totp:github.com:octocat", name: "GitHub", site: "github.com", label: "octocat", digits: 6, period: 30 },
       { id: "duo:api-0000aaaa.duosecurity.com", kind: "duo", name: "Example University", site: "api-0000aaaa.duosecurity.com", label: "" }],
-    codes: [c(1, "482913", "GitHub", "you@example.com", 40e3), c(2, "73520118", "Example Bank", "you@icloud.example", 4 * 60e3), c(3, "246810", "Discord", "you@example.com", 50 * 60e3, true)],
+    codes: [c(1, "482913", "GitHub", "you@example.com", 40e3),
+      Object.assign(c(4, "", "Example Forum", "you@example.com", 2 * 60e3), { subject: "Verify your new sign-in", link: "https://forum.example.com/verify?k=0123456789abcdef", host: "forum.example.com", dom: "example.com" }),
+      c(2, "73520118", "Example Bank", "you@icloud.example", 4 * 60e3), c(3, "246810", "Discord", "you@example.com", 50 * 60e3, true)],
+    hush: ["shop.example.com"],
   };
   window.browser = {
     storage: { local: {

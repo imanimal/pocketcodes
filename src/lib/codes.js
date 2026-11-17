@@ -12,27 +12,48 @@
       after it ("3600 seconds"), "expires in" before it, and for looking like a year next to a copyright line.
    4. The best candidate at 30 points or more wins; the rest come back as alternatives.
 
-   Every rule has a case in tests/core.test.js, and so do the quiet cases (messages that must give nothing). */
+   Every rule has a case in tests/core.test.js, and so do the quiet cases (messages that must give nothing).
+
+   A message with no code may instead carry a link to click ("verify this sign-in", "confirm your address"):
+   link() finds it, by the rules above it further down. */
 (function (g) {
   const PC = (g.PC = g.PC || {});
 
   const NAMED = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", ndash: "-", mdash: "-", rsquo: "'", lsquo: "'", ldquo: '"', rdquo: '"', copy: "©" };
 
+  /** "&amp;" and its kind back to characters. */
+  const decode = (s) => String(s).replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => {
+    if (e[0] === "#") {
+      const n = e[1].toLowerCase() === "x" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+      return n > 0 && n < 0x110000 ? String.fromCodePoint(n) : " ";
+    }
+    return NAMED[e.toLowerCase()] || " ";
+  });
+
   /** HTML mail as plain text, with block ends as line breaks so "a code on its own line" still shows. */
   function htmlToText(html) {
-    return String(html || "")
+    return decode(String(html || "")
       .replace(/<(style|script|head|title)[\s\S]*?<\/\1>/gi, " ")
       .replace(/<!--[\s\S]*?-->/g, " ")
       .replace(/<br\s*\/?>|<\/(p|div|tr|li|h[1-6]|table|section|blockquote)>/gi, "\n")
       .replace(/<\/t[dh]>/gi, " ")
-      .replace(/<[^>]*>/g, " ")
-      .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => {
-        if (e[0] === "#") {
-          const n = e[1].toLowerCase() === "x" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
-          return n > 0 && n < 0x110000 ? String.fromCodePoint(n) : " ";
-        }
-        return NAMED[e.toLowerCase()] || " ";
-      });
+      .replace(/<[^>]*>/g, " "));
+  }
+
+  /** The web links of an HTML mail, in order: [{ url, label }], the label being the link's own words (or its
+      picture's alt text). htmlToText drops these, so the providers pass them along as a message's `links`. */
+  function anchors(html) {
+    const out = [];
+    const re = /<a\b[^>]*?\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a\s*>/gi;
+    let m;
+    while ((m = re.exec(String(html || ""))) && out.length < 200) {
+      const url = decode(m[1] || m[2] || m[3] || "").trim();
+      if (!/^https?:\/\//i.test(url)) continue;
+      const alt = /\balt\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(m[4]);
+      const label = htmlToText(m[4]).replace(/\s+/g, " ").trim() || (alt ? decode(alt[1] || alt[2] || "").trim() : "");
+      out.push({ url, label: label.slice(0, 120) });
+    }
+    return out;
   }
 
   // Built from char codes so no raw line-separator characters or escapes sit in the source.
@@ -158,6 +179,68 @@
   /** The best code in { subject, text }, or null. */
   function find(msg) { return all(msg)[0] || null; }
 
+  // ── verification links: "click the link to verify this sign-in" ──
+  // The mail has to read like one (LINK_MAIL). Each web link in it then scores on its own words (an HTML link's
+  // label), the words just before it (a bare link in plain text), and what its address says. Links that undo or
+  // report something ("if this wasn't you…"), password resets, unsubscribe, help and social links never count.
+  const LINK_MAIL = /\b(?:verif(?:y|ication)|confirm(?:ation)?|activat(?:e|ion)|validat(?:e|ion)|authori[sz]e|approve|magic link|(?:sign|log)[ -]?in link|link (?:below )?to (?:sign|log) ?in|new (?:log[ -]?in|sign[ -]?in|device|location|browser))\b/i;
+  const ACT = /\b(?:verify|confirm|activate|validate|authori[sz]e|approve)\b/i;
+  const LABEL_WEAK = /\b(?:sign in|log ?in|click here|continue|this link)\b/i;
+  const NEAR_WEAK = /\b(?:click|follow|tap|open|link below|button below|this link)\b/i;
+  const URL_ACT = /verif|confirm|activat|validat|approv|authori[sz]|magic|opt-?in/i;
+  const URL_WEAK = /token|auth|log-?in|sign-?in|session|[?&](?:key|code|hash|sig)=/i;
+  const UNDO = /\b(?:(?:was|is)n'?t you|not you|did(?:n'?t| not) (?:request|sign|log|try|attempt|make|create|ask)|do(?:n'?t| not) recogni[sz]e|secure your account|report|reset|change your password|cancel|decline|deny|block)\b/i;
+  const NOT_LINK = /unsubscribe|opt-?out|preferences|privacy|terms|\bhelp\b|support|\bfaq\b|contact|view (?:it |this )?(?:email )?(?:in|on) (?:your |a )?browser|\.(?:png|jpe?g|gif|svg|css|js|ico|woff2?)(?:[?#]|$)/i;
+  const SOCIAL = /(?:^|\.)(?:facebook|twitter|x|instagram|linkedin|youtube|tiktok|apple|play\.google)\.com$/;
+
+  function linkScore(c) {
+    let u;
+    try { u = new URL(c.url); } catch (e) { return null; }
+    const host = u.hostname.toLowerCase().replace(/^www\./, "");
+    if (!/^https?:$/.test(u.protocol) || !host.includes(".") || c.url.length > 2000) return null;
+    const label = String(c.label || ""), near = String(c.near || "").replace(/’/g, "'"), rest = u.pathname + u.search;
+    if (SOCIAL.test(host) || NOT_LINK.test(rest) || NOT_LINK.test(label)) return null;
+    let s = 0;
+    if (ACT.test(label)) s += 45; else if (LABEL_WEAK.test(label)) s += 25;
+    if (ACT.test(near)) s += 35; else if (NEAR_WEAK.test(near)) s += 10;
+    if (!s) return null; // the words have to point at it: an address that says "verify" isn't enough
+    if (URL_ACT.test(rest)) s += 30; else if (URL_WEAK.test(rest)) s += 15;
+    if (/[A-Za-z0-9_]{20,}/.test(rest)) s += 10; // a one-off token
+    // the last thing said before a bare link, or the link's own words
+    const said = near.split(/(?<=[.!?])\s+|\n+/).filter((x) => x.trim().split(/\s+/).length > 1).pop() || "";
+    if (UNDO.test(said) || UNDO.test(label.replace(/’/g, "'"))) s -= 80;
+    return { url: u.href, host, score: s };
+  }
+
+  /** The link to click in a "verify this sign-in" or "confirm your address" mail: { url, host, score }, or null.
+      `msg` is { subject, text, links? }, `links` being an HTML mail's own (anchors). */
+  function link(msg) {
+    const subject = String((msg && msg.subject) || "");
+    const text = String((msg && msg.text) || "").replace(INVISIBLE, "").replace(SPACEY, " ").replace(/\r/g, "");
+    if (!LINK_MAIL.test((subject + "\n" + text).replace(/https?:\/\/\S+/gi, " "))) return null;
+    const list = ((msg && msg.links) || []).map((l) => ({ url: l.url, label: l.label }));
+    const re = /https?:\/\/[^\s<>"'\])]+/gi;
+    let m, end = 0;
+    while ((m = re.exec(text)) && list.length < 400) {
+      list.push({ url: m[0].replace(/[.,;:!?]+$/, ""), near: text.slice(Math.max(end, m.index - 200), m.index) });
+      end = m.index + m[0].length;
+    }
+    let best = null;
+    for (const c of list) {
+      const r = linkScore(c);
+      if (r && r.score >= 40 && (!best || r.score > best.score)) best = r;
+    }
+    return best;
+  }
+
+  /** A sender's mail domain: `"Example" <no-reply@mail.example.com>` → mail.example.com. "" when there isn't one. */
+  const domain = (from) => {
+    const s = String(from || "").trim();
+    const m = /<([^>]+)>\s*$/.exec(s);
+    const addr = m ? m[1] : s;
+    return addr.includes("@") ? site(addr.split("@").pop()) : "";
+  };
+
   /** A site as a bare host name: "https://www.GitHub.com/login" → "github.com". "" when it isn't one. */
   function site(text) {
     const s = String(text || "").trim().toLowerCase().replace(/^[a-z][a-z0-9+.-]*:\/\//, "").split(/[/?#:]/)[0].replace(/^www\./, "");
@@ -212,5 +295,5 @@
     return DUO_HOST.test(host) ? { host, code } : null;
   }
 
-  PC.codes = { htmlToText, clean, all, find, site, sameSite, otpauth, duo };
+  PC.codes = { htmlToText, anchors, clean, all, find, link, domain, site, sameSite, otpauth, duo };
 })(globalThis);

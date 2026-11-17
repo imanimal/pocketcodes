@@ -13,17 +13,17 @@
   // the built-in Google client (client.js) works only where Firefox's loopback redirect does
   const builtIn = !!(PC.CLIENT && PC.CLIENT.google.id && PC.CLIENT.google.secret && /\.extensions\.allizom\.org\//.test(redirect));
   const CMD = "python host/install_host.py";
-  let S = { accounts: [], settings: PC.DEFAULTS, google: {}, microsoft: {}, st: {}, meta: {}, codes: [], auth: [] };
+  let S = { accounts: [], settings: PC.DEFAULTS, google: {}, microsoft: {}, st: {}, meta: {}, codes: [], auth: [], hush: [] };
   let ui = { addImap: g.location.hash === "#icloud", preset: "icloud", note: "", noteBad: false, helper: null, armed: null, working: null, open: g.location.hash === "#helper" ? "helper" : null };
 
   /** Whether the browser still lets the sign-in page script run (you can take its site access away in the add-ons page). */
   const siteAccess = () => (api.permissions && api.permissions.contains ? api.permissions.contains({ origins: ["<all_urls>"] }).catch(() => true) : Promise.resolve(true));
 
   async function load() {
-    const r = await api.storage.local.get(["accounts", "settings", "google", "microsoft", "meta", "codes", "authenticators"]);
+    const r = await api.storage.local.get(["accounts", "settings", "google", "microsoft", "meta", "codes", "authenticators", "hush"]);
     const accounts = r.accounts || [];
     const st = await api.storage.local.get(accounts.map((a) => "st:" + a.id));
-    S = { accounts, settings: Object.assign({}, PC.DEFAULTS, r.settings || {}), google: r.google || {}, microsoft: r.microsoft || {}, st, meta: r.meta || {}, codes: r.codes || [], auth: r.authenticators || [], access: await siteAccess() };
+    S = { accounts, settings: Object.assign({}, PC.DEFAULTS, r.settings || {}), google: r.google || {}, microsoft: r.microsoft || {}, st, meta: r.meta || {}, codes: r.codes || [], auth: r.authenticators || [], hush: r.hush || [], access: await siteAccess() };
   }
 
   const googleReady = () => builtIn || !!(S.google.clientId && S.google.clientSecret);
@@ -119,7 +119,7 @@
     const pageOn = s.page && S.access;
     const g1 = S.google, m1 = S.microsoft;
     const now = Date.now();
-    const top = S.codes.find((c) => !c.used && now - c.at < s.fresh * PC.MIN);
+    const top = S.codes.find((c) => !c.link && !c.used && now - c.at < s.fresh * PC.MIN);
     const n = S.accounts.filter((a) => a.kind !== "texts").length;
     const texts = S.accounts.some((a) => a.kind === "texts");
     const gmail = googleReady()
@@ -148,12 +148,13 @@
             </div></div>
           <div class="step"><span class="n ${pageOn ? "done" : ""}">2</span><h3>Codes pop up on sign-in pages</h3>
             <div class="body">
-              <p>When a page asks for a code, a small chip pops up by the box: it checks your inboxes every few seconds and shows the code the moment it lands. It only looks at code boxes and the form around them, and sends nothing anywhere.</p>
+              <p>When a page asks for a code, PocketCodes checks your inboxes every few seconds and shows the code by the box the moment it lands. A page that emailed you a link to click gets that link, with an Open key. It only looks at code boxes and the text around them, and sends nothing anywhere.</p>
               <div class="row">${pageOn
                 ? `<span class="good"><b>On.</b></span><span class="quiet">When a code arrives:</span><select data-set="settings.fill" aria-label="When a code arrives"><option value="ask" ${s.fill === "ask" ? "selected" : ""}>Show it, I press Fill</option><option value="auto" ${s.fill === "auto" ? "selected" : ""}>Fill it in for me</option></select><button data-act="pageOff" class="sm">Turn off</button>`
                 : s.page
                   ? `<span class="bad">Firefox has PocketCodes' access to sites turned off, so the chip can't appear.</span><button data-act="pageOn" class="go">Allow</button>`
                   : `<span class="quiet"><b>Off.</b></span><button data-act="pageOn" class="go">Turn on</button>`}</div>
+              ${S.hush.length ? `<div class="row"><span class="quiet" title="${esc(S.hush.join(", "))}">You closed the "Checking for a code" tag on ${S.hush.length} site${S.hush.length === 1 ? "" : "s"}, so it stays away there. Codes still show.</span><button data-act="unhush" class="sm">Show it again</button></div>` : ""}
             </div></div>
           <div class="step"><span class="n done">3</span><h3>Fill with one key</h3>
             <div class="body"><p>On any page, <kbd>Alt+Shift+F</kbd> fills the newest code, and <kbd>Alt+Shift+C</kbd> opens the list. The toolbar button's <b>Fill</b> does the same.</p></div></div>
@@ -275,6 +276,7 @@
     else if (a === "helper") await checkHelper();
     else if (a === "pageOn" || a === "pageOff") await setPage(a === "pageOn");
     else if (a === "clear") { await PC.send({ type: "clear" }); note("Cleared."); }
+    else if (a === "unhush") { await PC.send({ type: "unhush" }); await load(); draw(); }
     else if (a === "showTotp") { ui.addTotp = true; draw(); checkHelper(); }
     else if (a === "cancelTotp") { ui.addTotp = false; draw(); }
     else if (a === "showDuo") { ui.addDuo = true; draw(); checkHelper(); }
